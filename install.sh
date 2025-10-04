@@ -40,3 +40,9 @@ nano ~/.zshrc
 plugins=(sudo themes aliases ubuntu git zsh-autosuggestions zsh-syntax-highlighting zsh-autocomplete z zsh-history-substring-search)
 source ~/.zshrc
 
+# Change Kitty Theme
+kittens theme
+
+
+
+
