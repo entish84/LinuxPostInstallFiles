@@ -15,7 +15,7 @@ sudo apt remove celluloid gnome-screenshot drawing hypnotix simple-scan pix mint
 flatpak install org.kde.kate -y
 
 # Install fonts
-sudo apt install fonts-inter fonts-jetbrains-mono fonts-cascadia-code
+sudo apt install fonts-inter fonts-jetbrains-mono fonts-cascadia-code fonts-font-awesome
 
 # Install jdk (17 because of MAUI otherwise latest)
 sudo apt install openjdk-17-jdk -y
