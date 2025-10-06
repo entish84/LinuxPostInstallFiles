@@ -65,4 +65,17 @@ sudo mv android-studio /opt/
 cd /opt/android-studio/bin
 ./studio.sh
 
+# GIT CONFIGURATIONS
+ls -al ~/.ssh
+ssh-keygen -t ed25519 -C "entishthoughts@outlook.com"
+eval "$(ssh-agent -s)"
+ssh-add ~/.ssh/id_ed25519
+cat ~/.ssh/id_ed25519.pub
+# Then, log in to GitHub, go to Settings > SSH and GPG keys, click New SSH key, provide a title, and paste the key
+ssh -T git@github.com
+git config --global user.name "Ranjit"
+git config --global user.email "entishthoughts@outlook.com"
+
+
+
 
