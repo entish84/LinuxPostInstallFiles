@@ -6,7 +6,7 @@ sudo apt update && sudo apt upgrade
 sudo apt install ubuntu-restricted-extras
 
 # Install essential softwares
-sudo apt install git curl wget vlc unzip rar mc htop inxi flameshot transmission gdebi gthumb kitty
+sudo apt install git curl wget vlc unzip rar mc htop inxi flameshot transmission gdebi gthumb kitty xclip
 
 # Remove default softwares
 sudo apt remove celluloid gnome-screenshot drawing hypnotix simple-scan pix mintchat rhythmbox
@@ -76,6 +76,18 @@ ssh -T git@github.com
 git config --global user.name "Ranjit"
 git config --global user.email "entishthoughts@outlook.com"
 
-
-
+# Install dotnet via scripts
+wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
+chmod +x dotnet-install.sh
+sudo ./dotnet-install.sh --channel 8.0 --install-dir ~/dotnet
+echo 'export DOTNET_ROOT=~/dotnet' >> ~/.zshrc
+echo 'export PATH=$PATH:~/dotnet:~/dotnet/tools' >> ~/.zshrc
+source ~/.zshrc
+dotnet --list-sdks
+dotnet workload search
+dotnet workload install maui-android
+dotnet workload list
+dotnet new maui -n MyMauiApp
+cd MyMauiApp
+dotnet build -t:Run -f net8.0-android
 
