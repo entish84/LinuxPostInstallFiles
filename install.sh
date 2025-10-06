@@ -43,6 +43,26 @@ source ~/.zshrc
 # Change Kitty Theme
 kittens theme
 
+# Install Powerlevel10k terminal theme
+git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/powerlevel10k"
+ZSH_THEME = "powerlevel10k/powerlevel10k"
 
+# Install Graphite Theme
+cd Downloads
+mkdir graphth
+cd graphth
+git clone https://github.com/vinceliuice/Graphite-gtk-theme.git
+cd /home/rs/Downloads/graphth/Graphite-gtk-theme
+./install.sh -t all -c dark -s compact --tweaks nord darker  # Other options rimless normal
+
+# Install ulauncher
+sudo add-apt-repository universe -y && sudo add-apt-repository ppa:agornostal/ulauncher -y && sudo apt update && sudo apt install ulauncher
+
+# Install Android Studio
+# Download tar file
+tar -xvf <Filename>
+sudo mv android-studio /opt/
+cd /opt/android-studio/bin
+./studio.sh
 
 
