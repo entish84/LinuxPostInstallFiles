@@ -127,8 +127,10 @@ export PATH="$PATH:/home/rs/Downloads/nviminstall/nvim-linux-x86_64/bin"
 export PATH="$PATH:/opt/android-studio/bin"
 export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
 export PATH="$JAVA_HOME/bin:$PATH"
-export ANDROID_HOME="/home/rs/Android/Sdk"
-export PATH=$PATH:$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools
-export ANDROID_AVD_HOME="~/.android/avd/"
-
+export ANDROID_HOME="$HOME/Android/Sdk"
+export PATH=$PATH:$ANDROID_HOME/tools:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools:$ANDROID_HOME/cmdline-tools/latest/bin
+export ANDROID_AVD_HOME="~/.android/avd"
+export DOTNET_ROOT="$HOME/dotnet"
+export PATH=$PATH:$DOTNET_ROOT:$DOTNET_ROOT/tools:$ANDROID_AVD_HOME
 typeset -U PATH
+
