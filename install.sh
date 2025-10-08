@@ -91,3 +91,5 @@ dotnet new maui -n MyMauiApp
 cd MyMauiApp
 dotnet build -t:Run -f net8.0-android
 
+#make all changes in ubuntu
+
