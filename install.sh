@@ -91,5 +91,14 @@ dotnet new maui -n MyMauiApp
 cd MyMauiApp
 dotnet build -t:Run -f net8.0-android
 
+#goto android sdk cmdline-tools latest bin
+#run
+./sdkmanager "build-tools;34.0.0"
+./sdkmanager "system-images;android-34;google_apis;x86_64"
+
+
+
+
+
 #make all changes in ubuntu
 
