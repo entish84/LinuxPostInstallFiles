@@ -93,6 +93,12 @@ cd /opt/android-studio/bin
 # run flutter doctor.
 # Accept Licenses.
 
+#goto android sdk cmdline-tools latest bin
+cd ~/Android/Sdk/cmdline-tools/latest/bin/
+#run
+./sdkmanager "build-tools;34.0.0"
+./sdkmanager "system-images;android-34;google_apis;x86_64"
+
 # Install dotnet via scripts
 wget https://dot.net/v1/dotnet-install.sh -O dotnet-install.sh
 chmod +x dotnet-install.sh
@@ -108,10 +114,7 @@ dotnet new maui -n MyMauiApp
 cd MyMauiApp
 dotnet build -t:Run -f net8.0-android
 
-#goto android sdk cmdline-tools latest bin
-#run
-./sdkmanager "build-tools;34.0.0"
-./sdkmanager "system-images;android-34;google_apis;x86_64"
+
 
 
 
