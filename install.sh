@@ -17,8 +17,19 @@ flatpak install org.kde.kate -y
 # Install fonts
 sudo apt install fonts-inter fonts-jetbrains-mono fonts-cascadia-code fonts-font-awesome
 
+# goto https://www.nerdfonts.com/font-downloads
+# install firacode-nerdfont
+# install starship
+curl -sS https://starship.rs/install.sh | sh
+
+# Configure - add entry to end of ~/.bashrc
+eval "$(starship init bash)"
+
+# configure gruvbox preset
+starship preset gruvbox-rainbow -o ~/.config/starship.toml
+
 # Install jdk (17 because of MAUI otherwise latest)
-sudo apt install openjdk-17-jdk -y
+sudo apt install openjdk-21-jdk -y
 
 # Install zsh and oh-my-zsh
 sudo apt install zsh -y
