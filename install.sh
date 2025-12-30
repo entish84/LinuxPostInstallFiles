@@ -3,16 +3,19 @@
 sudo apt update && sudo apt upgrade
 
 # Install codecs and microsoft fonts
-sudo apt install ubuntu-restricted-extras
+sudo apt install mint-meta-codecs
+
+# Install ms fonts
+sudo apt install ttf-mscorefonts-installer
 
 # Install essential softwares
-sudo apt install git curl wget vlc unzip rar mc htop inxi flameshot transmission gdebi gthumb kitty xclip
+sudo apt install git gcc make curl wget unzip unrar tar htop bpytop inxi neofetch clang cargo libc6-i386 libc6-x32 libu2f-udev samba-common-bin exfat-fuse linux-headers-$(uname -r) linux-headers-generic gstreamer1.0-vaapi ntfs-3g p7zip
 
 # Remove default softwares
 sudo apt remove celluloid gnome-screenshot drawing hypnotix simple-scan pix mintchat rhythmbox
 
-# Install Kate editor
-flatpak install org.kde.kate -y
+# Install new softwares
+sudo apt install vlc flameshot transmission gdebi gthumb xclip
 
 # Install fonts
 sudo apt install fonts-inter fonts-jetbrains-mono fonts-cascadia-code fonts-font-awesome
