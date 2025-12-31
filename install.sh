@@ -30,6 +30,8 @@ eval "$(starship init bash)"
 
 # configure gruvbox preset
 starship preset gruvbox-rainbow -o ~/.config/starship.toml
+# Configure Powerline preset
+starship preset catppuccin-powerline -o ~/.config/starship.toml
 
 # Install jdk (17 because of MAUI otherwise latest)
 sudo apt install openjdk-21-jdk -y
