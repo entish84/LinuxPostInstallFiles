@@ -15,7 +15,7 @@ sudo apt install git gcc make curl wget unzip unrar tar htop bpytop inxi neofetc
 sudo apt remove celluloid gnome-screenshot drawing hypnotix simple-scan pix mintchat rhythmbox
 
 # Install new softwares
-sudo apt install vlc flameshot transmission gdebi gthumb xclip
+sudo apt install vlc flameshot transmission gdebi gthumb xclip kitty
 
 # Install fonts
 sudo apt install fonts-inter fonts-jetbrains-mono fonts-cascadia-code fonts-font-awesome
