@@ -20,6 +20,10 @@ sudo apt install vlc flameshot transmission gdebi gthumb xclip kitty
 # Install fonts
 sudo apt install fonts-inter fonts-jetbrains-mono fonts-cascadia-code fonts-font-awesome
 
+# Nerd Fonts
+curl -sSLo nerdfonts-installer https://github.com/fam007e/nerd_fonts_installer/releases/latest/download/nerdfonts-installer && chmod +x nerdfonts-installer && sudo mv nerdfonts-installer /usr/local/bin/
+nerdfonts-installer
+
 # goto https://www.nerdfonts.com/font-downloads
 # install firacode-nerdfont
 # install starship
