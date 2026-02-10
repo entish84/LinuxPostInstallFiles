@@ -1,5 +1,5 @@
 sudo dnf copr enable lihaohong/yazi
-
+sudo dnf copr enable jakjasie1/timeshift
 sudo dnf copr enable alternateved/eza
 
 sudo dnf install zoxide eza fzf bat yazi -y
@@ -17,3 +17,7 @@ sudo dnf upgrade --refresh
 sudo dnf install code
  
 sudo dnf install kitty foliate
+
+sudo dnf install timeshift
+
+
