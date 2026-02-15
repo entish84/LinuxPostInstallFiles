@@ -52,11 +52,9 @@ just build
 sudo just install-niri
 niri
 
-
-
-
-
-niri
+sudo dnf copr enable jdxcode/mise
+sudo dnf install mise
+echo 'eval "$(/usr/bin/mise activate zsh)"' >> ~/.zshrc
 
 
 
