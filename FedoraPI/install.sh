@@ -42,6 +42,20 @@ sudo dnf install asusctl supergfxctl
 sudo systemctl enable --now supergfxd
 supergfxctl -m Integrated
 
+sudo dnf copr enable jdxcode/mise
+sudo dnf install mise
+echo 'eval "$(/usr/bin/mise activate zsh)"' >> ~/.zshrc
+
+sudo dnf install dnf5-plugins
+sudo dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
+sudo dnf install gh --repo gh-cli
+# gh auth login
+
+sudo dnf copr enable dejan/lazygit
+sudo dnf install lazygit
+
+sudo dnf install ulauncher wmctrl
+
 sudo dnf5 copr enable -y ryanabx/cosmic-epoch
 sudo dnf5 copr enable -y yalter/niri
 sudo dnf install niri just xwayland-satellite -y
@@ -52,9 +66,6 @@ just build
 sudo just install-niri
 niri
 
-sudo dnf copr enable jdxcode/mise
-sudo dnf install mise
-echo 'eval "$(/usr/bin/mise activate zsh)"' >> ~/.zshrc
 
 
 
