@@ -30,19 +30,38 @@ sudo sh -c 'echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.m
 sudo dnf upgrade --refresh
 sudo dnf install code
  
-sudo dnf install kitty foliate micro haruna
-sudo dnf install timeshift
+sudo dnf install kitty foliate micro haruna timeshift -y
 sudo dnf install bottom -y
 
 mkdir -p ~/.config/mpv/
 nano ~/.config/mpv/mpv.conf
 #Add this line: hwdec=auto-safe
 
-
-
 sudo dnf copr enable lukenukem/asus-linux
 sudo dnf install asusctl supergfxctl
 sudo systemctl enable --now supergfxd
 supergfxctl -m Integrated
+
+sudo dnf5 copr enable -y ryanabx/cosmic-epoch
+sudo dnf5 copr enable -y yalter/niri
+sudo dnf install niri just xwayland-satellite -y
+git clone https://github.com/Drakulix/cosmic-ext-extra-sessions.git
+cd cosmic-ext-extra-sessions
+git submodule update --init
+just build
+sudo just install-niri
+niri
+
+
+
+
+
+niri
+
+
+
+
+
+
 
 
