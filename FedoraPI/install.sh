@@ -20,4 +20,9 @@ sudo dnf install kitty foliate
 
 sudo dnf install timeshift
 
+sudo dnf copr enable lukenukem/asus-linux
+sudo dnf install asusctl supergfxctl
+sudo systemctl enable --now supergfxd
+supergfxctl -m Integrated
+
 
