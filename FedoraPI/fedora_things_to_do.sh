@@ -145,7 +145,7 @@ dnf install -y @virtualization
 # App Installation
 # Install essential applications
 color_echo "yellow" "Installing essential applications..."
-dnf install -y btop inxi fastfetch unzip unrar git wget curl gcc make cmake clang cargo meld p7zip tar ninja-build
+dnf install -y btop inxi fastfetch unzip unrar git wget curl gcc make cmake clang cargo meld p7zip tar ninja-build direnv wl-clipboard
 color_echo "green" "Essential applications installed successfully."
 
 # Install Internet & Communication applications
