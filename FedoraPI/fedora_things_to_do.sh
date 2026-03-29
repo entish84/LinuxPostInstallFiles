@@ -1,6 +1,8 @@
 #!/bin/bash
 # "Things To Do!" script for a fresh Fedora Workstation installation
 
+
+
 # Check if the script is run with sudo
 if [ "$EUID" -ne 0 ]; then
     echo "Please run this script with sudo"
@@ -142,10 +144,11 @@ dnf swap mesa-vdpau-drivers mesa-vdpau-drivers-freeworld -y
 color_echo "yellow" "Installing virtualization tools..."
 dnf install -y @virtualization
 
+
 # App Installation
 # Install essential applications
 color_echo "yellow" "Installing essential applications..."
-dnf install -y btop inxi fastfetch unzip unrar git wget curl gcc make cmake clang cargo meld p7zip tar ninja-build direnv wl-clipboard
+dnf install -y htop inxi fastfetch unzip unrar git wget curl gnome-tweaks
 color_echo "green" "Essential applications installed successfully."
 
 # Install Internet & Communication applications
@@ -170,13 +173,6 @@ gpgkey=https://packages.microsoft.com/keys/microsoft.asc" | sudo tee /etc/yum.re
 dnf check-update
 dnf install -y code
 color_echo "green" "Visual Studio Code installed successfully."
-
-# Github Desktop
-color_echo "yellow" "Installing GitHub Desktop..."
-flatpak install -y flathub io.github.shiftey.Desktop
-color_echo "green" "GitHub Desktop installed successfully."
-
-# Docker
 color_echo "yellow" "Installing Docker..."
 dnf remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-selinux docker-engine-selinux docker-engine --noautoremove
 dnf -y install dnf-plugins-core
@@ -194,56 +190,9 @@ rm -rf $ACTUAL_HOME/.docker
 echo "Docker installed successfully. Please log out and back in for the group changes to take effect."
 color_echo "green" "Docker installed successfully."
 # Note: Docker group changes will take effect after logging out and back in
-
-# Install Container Tools
-color_echo "yellow" "Installing Container Tools..."
-dnf install -y podman toolbox distrobox
+color_echo "yellow" "Installing Podman..."
+dnf install -y podman
 color_echo "green" "Podman installed successfully."
-
-color_echo "yellow" "Installing user apps.."
-dnf install kitty foliate micro featherpad qbittorrent mpv -y
-color_echo "green" "Done1."
-
-# Install System Tools applications
-color_echo "yellow" "Installing Flatseal..."
-flatpak install -y flathub com.github.tchx84.Flatseal
-color_echo "green" "Flatseal installed successfully."
-color_echo "yellow" "Installing Gear Lever..."
-flatpak install -y flathub it.mijorus.gearlever
-color_echo "green" "Gear Lever installed successfully."
-
-# Install github cli
-dnf install dnf5-plugins -y
-dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo
-dnf install gh --repo gh-cli -y
-
-# Customization
-# Install Microsoft Windows fonts (core)
-color_echo "yellow" "Installing Microsoft Fonts (core)..."
-dnf install -y curl cabextract xorg-x11-font-utils fontconfig
-rpm -i https://downloads.sourceforge.net/project/mscorefonts2/rpms/msttcore-fonts-installer-2.6-1.noarch.rpm
-color_echo "green" "Microsoft Fonts (core) installed successfully."
-
-dnf copr enable julicen/atkinson-hyperlegible-fonts -y
-# 2. Enable the reliable repo for Inter and JetBrains
-dnf copr enable elxreno/jetbrains-mono-fonts -y
-# 3. Install with the exact current package names
-dnf install -y \
-    atkinson-hyperlegible-next-fonts \
-    atkinson-hyperlegible-mono-fonts \
-    rsms-inter-vf-fonts \
-    google-roboto-fonts \
-    jetbrains-mono-fonts-all
-# 4. Refresh font cache
-fc-cache -fv
-color_echo "green" "Done3."
-
-# A flat colorful design icon theme for linux desktops
-color_echo "yellow" "Installing Papirus Icon Theme..."
-dnf install -y papirus-icon-theme
-color_echo "green" "Papirus Icon Theme installed successfully."
-
-# Install ZSH and Oh-my-zsh
 color_echo "yellow" "Installing Zsh and Oh My Zsh..."
 dnf install -y zsh
 sudo -u $ACTUAL_USER sh -c "RUNZSH=no $(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
@@ -253,10 +202,71 @@ git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-$ACTUAL
 git clone https://github.com/marlonrichert/zsh-autocomplete.git ${ZSH_CUSTOM:-$ACTUAL_HOME/.oh-my-zsh/custom}/plugins/zsh-autocomplete
 git clone https://github.com/zsh-users/zsh-history-substring-search ${ZSH_CUSTOM:-$ACTUAL_HOME/.oh-my-zsh/custom}/plugins/zsh-history-substring-search
 git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-$ACTUAL_HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
-sed -i 's/plugins=(git)/plugins=(dnf aliases git starship zsh-autosuggestions zsh-autocomplete zsh-history-substring-search zsh-syntax-highlighting)/' $ACTUAL_HOME/.zshrc
-sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="eastwood"/' $ACTUAL_HOME/.zshrc
+sed -i 's/plugins=(git)/plugins=(dnf aliases genpass git zsh-autosuggestions zsh-autocomplete zsh-history-substring-search z zsh-syntax-highlighting)/' $ACTUAL_HOME/.zshrc
+sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="jonathan"/' $ACTUAL_HOME/.zshrc
 EOF
 color_echo "green" "Zsh and Oh My Zsh installed successfully."
+
+# Install Media & Graphics applications
+color_echo "yellow" "Installing Stremio..."
+flatpak install -y flathub com.stremio.Stremio
+color_echo "green" "Stremio installed successfully."
+color_echo "yellow" "Installing MPV..."
+dnf install -y mpv
+color_echo "green" "MPV installed successfully."
+
+# Install Gaming & Emulation applications
+color_echo "yellow" "Installing Steam..."
+dnf install -y steam
+color_echo "green" "Steam installed successfully."
+
+# Install File Sharing & Download applications
+color_echo "yellow" "Installing qBittorrent..."
+dnf install -y qbittorrent
+color_echo "green" "qBittorrent installed successfully."
+
+# Install System Tools applications
+color_echo "yellow" "Installing Flatseal..."
+flatpak install -y flathub com.github.tchx84.Flatseal
+color_echo "green" "Flatseal installed successfully."
+color_echo "yellow" "Installing Extension Manager..."
+flatpak install -y flathub com.mattjakeman.ExtensionManager
+color_echo "green" "Extension Manager installed successfully."
+color_echo "yellow" "Installing Bottles..."
+flatpak install -y flathub com.usebottles.bottles
+color_echo "green" "Bottles installed successfully."
+
+
+# Customization
+# Install Microsoft Windows fonts (core)
+color_echo "yellow" "Installing Microsoft Fonts (core)..."
+dnf install -y curl cabextract xorg-x11-font-utils fontconfig
+rpm -i https://downloads.sourceforge.net/project/mscorefonts2/rpms/msttcore-fonts-installer-2.6-1.noarch.rpm
+color_echo "green" "Microsoft Fonts (core) installed successfully."
+
+# A flat colorful design icon theme for linux desktops
+color_echo "yellow" "Installing Qogir Icon Theme..."
+git clone https://github.com/vinceliuice/Qogir-icon-theme.git /tmp/Qogir-icon-theme
+cd /tmp/Qogir-icon-theme && ./install.sh -c all -t all
+rm -rf /tmp/Qogir-icon-theme
+sudo -u $ACTUAL_USER gsettings set org.gnome.desktop.interface icon-theme "Qogir"
+color_echo "green" "Qogir Icon Theme installed successfully."
+
+# A flat colorful design icon theme for linux desktops
+color_echo "yellow" "Installing Papirus Icon Theme..."
+dnf install -y papirus-icon-theme
+sudo -u $ACTUAL_USER gsettings set org.gnome.desktop.interface icon-theme "Papirus"
+color_echo "green" "Papirus Icon Theme installed successfully."
+
+
+# Custom user-defined commands
+# Custom user-defined commands
+echo "Created with ❤️ for Open Source"
+
+dnf install -y kitty direnv micro make cmake clang cargo p7zip tar ninja-build wl-clipboard
+
+dnf install -y rsms-inter-vf-fonts 
+fc-cache -fv
 
 dnf copr enable lihaohong/yazi -y
 dnf copr enable jakjasie1/timeshift -y
@@ -267,35 +277,10 @@ color_echo "green" "Installed TUI applications and Timeshift."
 # Install and configure starship
 curl -sS https://starship.rs/install.sh | sh
 mkdir -p ~/.config && touch ~/.config/starship.toml
-if command -v starship >/dev/null 2>&1; then
-    starship preset pure-preset -o ~/.config/starship.toml
-    color_echo "green" "Configured Pure Preset"
-fi
-color_echo "green" "Installed Starship."
 
-# Install Mise
 dnf copr enable jdxcode/mise -y
 dnf install mise -y
-if command -v mise >/dev/null 2>&1; then
-    mise use --global dotnet@10
-    mise use --global java@lts
-    mise use --global python@latest
-    mise use --global node@latest
-    mise use --global npm@latest
-fi
 
-# Copy the configuration files
-mkdir -p ~/.config/kitty && touch ~/.config/kitty/kitty.conf
-cp kitty.conf ~/.config/kitty/kitty.conf
-color_echo "green" "Copied Kitty Configuration."
-
-mv ~/.zshrc ~/.zshrcbkup
-cp zshrc ~/.zshrc
-color_echo "green" "Copied ZSH Configuration."
-
-# Custom user-defined commands
-# Custom user-defined commands
-echo "Created with ❤️ for Open Source"
 
 # Before finishing, ensure we're in a safe directory
 cd /tmp || cd $ACTUAL_HOME || cd /
