@@ -48,6 +48,10 @@ make -C ble.sh install PREFIX=~/.local
 # Add this line at the end of .bashrc:
 [[ ! ${BLE_VERSION-} ]] || ble-attach
 
+
+# GEMINI CLI
+npm install -g @google/gemini-cli
+
 # FZF
 git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf
 ~/.fzf/install
