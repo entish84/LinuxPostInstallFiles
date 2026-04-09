@@ -33,6 +33,10 @@ sudo apt install zoxide fzf eza yazi fd-find ripgrep bat tldr ffmpeg 7zip jq pop
 # MISE
 curl https://mise.run/bash | sh
 # Installs mise and adds activation to ~/.bashrc
+mise use -g usage
+mise use -g dotnet@10
+mise use -g java@lts
+mise use -g node@latest
 
 # BLE.SH
 # Quick INSTALL to BASHRC (If this doesn't work, please follow Sec 1.3)
