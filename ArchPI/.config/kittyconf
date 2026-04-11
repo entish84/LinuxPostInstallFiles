@@ -1,0 +1,67 @@
+
+font_size        12.0
+
+# Ligatures (2026 Standard: Enable by default)
+disable_ligatures never
+
+# --- Window & Opacity ---
+background_opacity 0.85
+# background_blur    20
+# For Arch/Wayland users, blur requires a compositor (like Hyprland or Sway)
+# to support the "background_blur" protocol.
+
+# Window Padding (Makes it look cleaner)
+window_padding_width 10
+
+# --- Cursor Customization ---
+cursor_shape          block
+cursor_blink_interval 0.5
+cursor_stop_blinking_after 15.0
+
+# --- Tab Bar Styling ---
+tab_bar_edge            bottom
+tab_bar_style           powerline
+tab_powerline_style     slanted
+tab_title_template      "{index}: {title}"
+active_tab_font_style   bold
+inactive_tab_font_style normal
+
+# --- Performance & Mouse ---
+repaint_delay    10
+input_delay      3
+sync_to_monitor  yes
+detect_urls      yes
+copy_on_select   yes
+
+# --- Keybindings ---
+# Clipboard
+map ctrl+shift+c copy_to_clipboard
+map ctrl+shift+v paste_from_clipboard
+
+# Font Resizing
+map ctrl+shift+equal change_font_size all +2.0
+map ctrl+shift+minus change_font_size all -2.0
+map ctrl+shift+backspace restore_font_size
+
+# Layouts & Tabs
+enabled_layouts *
+map ctrl+shift+t new_tab
+map ctrl+shift+w close_tab
+map ctrl+shift+right next_tab
+map ctrl+shift+left previous_tab
+
+# Config Reload
+map ctrl+shift+f5 load_config_file
+
+
+# BEGIN_KITTY_THEME
+# Tokyo Night Storm
+include current-theme.conf
+# END_KITTY_THEME
+
+# BEGIN_KITTY_FONTS
+font_family      family="FiraCode Nerd Font"
+bold_font        auto
+italic_font      auto
+bold_italic_font auto
+# END_KITTY_FONTS

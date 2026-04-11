@@ -1,0 +1,104 @@
+# Zinit installation
+ZINIT_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git"
+[ ! -d $ZINIT_HOME ] && mkdir -p "$(dirname $ZINIT_HOME)"
+[ ! -d $ZINIT_HOME/.git ] && git clone https://github.com/zdharma-continuum/zinit.git "$ZINIT_HOME"
+source "${ZINIT_HOME}/zinit.zsh"
+
+# Load OMZ libs we need (not the whole thing)
+zinit snippet OMZL::git.zsh
+zinit snippet OMZL::directories.zsh
+zinit snippet OMZL::theme-and-appearance.zsh
+zinit snippet OMZL::async_prompt.zsh
+
+# eza config - must be set BEFORE loading the plugin
+zstyle ':omz:plugins:eza' 'dirs-first' yes
+zstyle ':omz:plugins:eza' 'git-status' yes
+zstyle ':omz:plugins:eza' 'header' yes
+zstyle ':omz:plugins:eza' 'icons' yes
+
+# Load OMZ plugins
+zinit snippet OMZP::git
+zinit snippet OMZP::direnv
+zinit snippet OMZP::eza
+
+# Load a few important annexes, without Turbo
+# (this is currently required for annexes)
+zinit light-mode for \
+    zdharma-continuum/zinit-annex-as-monitor \
+    zdharma-continuum/zinit-annex-bin-gem-node \
+    zdharma-continuum/zinit-annex-patch-dl \
+    zdharma-continuum/zinit-annex-rust
+
+# Zsh plugins
+zinit light marlonrichert/zsh-autocomplete
+zinit light zsh-users/zsh-syntax-highlighting
+zinit light zsh-users/zsh-autosuggestions
+zinit light Aloxaf/fzf-tab
+
+# Load completions efficiently (after prompt is ready)
+autoload -Uz compinit
+compinit
+
+# Initialize tools
+eval "$(starship init zsh)"
+eval "$(/home/rs/.local/bin/mise activate zsh)"
+eval "$(zoxide init zsh)"
+
+# history setup
+HISTFILE=$HOME/.zhistory
+SAVEHIST=10000
+HISTSIZE=10000
+setopt share_history
+setopt hist_expire_dups_first
+setopt hist_ignore_dups
+setopt hist_verify
+
+# Aliases
+alias d=dotnet
+alias db="dotnet build"
+alias dw="dotnet watch"
+alias dr="dotnet run"
+alias dt="dotnet test"
+alias c="clear"
+alias q="exit"
+
+alias ls="eza -lh --color=auto --icons=auto --group-directories-first"
+alias lsa="ls -a"
+alias lt="eza --tree --level=3 --long --icons --git"
+alias lta="lt -a"
+alias grep="ripgrep --color=auto"
+alias cat='bat --paging=never'
+alias less='bat --style=plain'
+alias yayupd="yay -Syu"
+alias pacupd="sudo pacman -Syu"
+alias pacclean="sudo pacman -Rns \$(pacman -Qtdq)"
+alias pacin="sudo pacman -S --noconfirm"
+alias pacrm="sudo pacman -Rns"
+alias yayin="yay -S"
+alias yayrm="yay -Rns"
+alias zshconfig="code ~/.zshrc"
+alias zshreload="source ~/.zshrc"
+
+# vscode integration
+[[ "$TERM_PROGRAM" == "vscode" ]] && . "$(code --locate-shell-integration-path zsh)"
+
+# Function to change directory to the last one visited in yazi on exit
+function yy() {
+	local tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
+	yazi "$@" --cwd-file="$tmp"
+	if cwd="$(cat -- "$tmp")" && [ -n "$cwd" ] && [ "$cwd" != "$PWD" ]; then
+		cd -- "$cwd"
+	fi
+	rm -f -- "$tmp"
+}
+alias fm=yy
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# Atuin - synced shell history (load last)
+. "$HOME/.atuin/bin/env"
+eval "$(atuin init zsh)"
+
+typeset -U PATH
