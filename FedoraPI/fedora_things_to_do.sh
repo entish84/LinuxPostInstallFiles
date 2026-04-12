@@ -148,7 +148,7 @@ dnf install -y @virtualization
 # App Installation
 # Install essential applications
 color_echo "yellow" "Installing essential applications..."
-dnf install -y htop inxi fastfetch unzip unrar git wget curl gnome-tweaks
+dnf install -y btop inxi ncdu fastfetch unzip unrar git wget curl gnome-tweaks
 color_echo "green" "Essential applications installed successfully."
 
 # Install Internet & Communication applications
@@ -193,32 +193,11 @@ color_echo "green" "Docker installed successfully."
 color_echo "yellow" "Installing Podman..."
 dnf install -y podman
 color_echo "green" "Podman installed successfully."
-color_echo "yellow" "Installing Zsh and Oh My Zsh..."
-dnf install -y zsh
-sudo -u $ACTUAL_USER sh -c "RUNZSH=no $(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-chsh -s $(which zsh) $ACTUAL_USER
-sudo -u $ACTUAL_USER bash << EOF
-git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-$ACTUAL_HOME/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
-git clone https://github.com/marlonrichert/zsh-autocomplete.git ${ZSH_CUSTOM:-$ACTUAL_HOME/.oh-my-zsh/custom}/plugins/zsh-autocomplete
-git clone https://github.com/zsh-users/zsh-history-substring-search ${ZSH_CUSTOM:-$ACTUAL_HOME/.oh-my-zsh/custom}/plugins/zsh-history-substring-search
-git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-$ACTUAL_HOME/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
-sed -i 's/plugins=(git)/plugins=(dnf aliases genpass git zsh-autosuggestions zsh-autocomplete zsh-history-substring-search z zsh-syntax-highlighting)/' $ACTUAL_HOME/.zshrc
-sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="jonathan"/' $ACTUAL_HOME/.zshrc
-EOF
-color_echo "green" "Zsh and Oh My Zsh installed successfully."
 
 # Install Media & Graphics applications
-color_echo "yellow" "Installing Stremio..."
-flatpak install -y flathub com.stremio.Stremio
-color_echo "green" "Stremio installed successfully."
 color_echo "yellow" "Installing MPV..."
 dnf install -y mpv
 color_echo "green" "MPV installed successfully."
-
-# Install Gaming & Emulation applications
-color_echo "yellow" "Installing Steam..."
-dnf install -y steam
-color_echo "green" "Steam installed successfully."
 
 # Install File Sharing & Download applications
 color_echo "yellow" "Installing qBittorrent..."
@@ -232,9 +211,6 @@ color_echo "green" "Flatseal installed successfully."
 color_echo "yellow" "Installing Extension Manager..."
 flatpak install -y flathub com.mattjakeman.ExtensionManager
 color_echo "green" "Extension Manager installed successfully."
-color_echo "yellow" "Installing Bottles..."
-flatpak install -y flathub com.usebottles.bottles
-color_echo "green" "Bottles installed successfully."
 
 
 # Customization
@@ -243,14 +219,6 @@ color_echo "yellow" "Installing Microsoft Fonts (core)..."
 dnf install -y curl cabextract xorg-x11-font-utils fontconfig
 rpm -i https://downloads.sourceforge.net/project/mscorefonts2/rpms/msttcore-fonts-installer-2.6-1.noarch.rpm
 color_echo "green" "Microsoft Fonts (core) installed successfully."
-
-# A flat colorful design icon theme for linux desktops
-color_echo "yellow" "Installing Qogir Icon Theme..."
-git clone https://github.com/vinceliuice/Qogir-icon-theme.git /tmp/Qogir-icon-theme
-cd /tmp/Qogir-icon-theme && ./install.sh -c all -t all
-rm -rf /tmp/Qogir-icon-theme
-sudo -u $ACTUAL_USER gsettings set org.gnome.desktop.interface icon-theme "Qogir"
-color_echo "green" "Qogir Icon Theme installed successfully."
 
 # A flat colorful design icon theme for linux desktops
 color_echo "yellow" "Installing Papirus Icon Theme..."
@@ -263,23 +231,24 @@ color_echo "green" "Papirus Icon Theme installed successfully."
 # Custom user-defined commands
 echo "Created with ❤️ for Open Source"
 
-dnf install -y kitty direnv micro make cmake clang cargo p7zip tar ninja-build wl-clipboard
+dnf install -y kitty direnv micro make cmake clang cargo tar ninja-build wl-clipboard foliate 
 
 dnf install -y rsms-inter-vf-fonts 
 fc-cache -fv
 
 dnf copr enable lihaohong/yazi -y
-dnf copr enable jakjasie1/timeshift -y
 dnf copr enable alternateved/eza -y
-dnf install zoxide eza fzf bat yazi timeshift -y
+dnf install zoxide eza fzf bat yazi fd-find ripgrep tldr jq ffmpeg poppler -y
 color_echo "green" "Installed TUI applications and Timeshift."
 
 # Install and configure starship
 curl -sS https://starship.rs/install.sh | sh
-mkdir -p ~/.config && touch ~/.config/starship.toml
 
 dnf copr enable jdxcode/mise -y
 dnf install mise -y
+
+dnf install zsh -y
+chsh -s $(which zsh)
 
 
 # Before finishing, ensure we're in a safe directory
