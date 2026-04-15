@@ -86,4 +86,5 @@ sudo apt-get update && \
 # OPTIONAL
 sudo apt-get update && \
   sudo apt-get install -y aspnetcore-runtime-10.0
-
+# add to zshrc
+eval "$(dotnet completions script zsh)"
