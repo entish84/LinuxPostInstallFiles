@@ -73,3 +73,17 @@ cat ~/.ssh/id_ed25519.pub
 ssh -T git@github.com
 git config --global user.name "Ranjit"
 git config --global user.email "entishthoughts@outlook.com"
+
+
+#DEBIAN ############
+wget https://packages.microsoft.com/config/debian/13/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+sudo dpkg -i packages-microsoft-prod.deb
+rm packages-microsoft-prod.deb
+
+sudo apt-get update && \
+  sudo apt-get install -y dotnet-sdk-10.0
+
+# OPTIONAL
+sudo apt-get update && \
+  sudo apt-get install -y aspnetcore-runtime-10.0
+
