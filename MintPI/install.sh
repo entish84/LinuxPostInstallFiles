@@ -86,8 +86,15 @@ sudo apt-get update && \
 # OPTIONAL
 sudo apt-get update && \
   sudo apt-get install -y aspnetcore-runtime-10.0
+
+#UBUNTU ###############################
+sudo apt install dotnet-sdk-10.0
+
 # add to zshrc
 eval "$(dotnet completions script zsh)"
+
+# export DOTNET_ROOT="$HOME/.dotnet"
+# export PATH=$PATH:$DOTNET_ROOT:$DOTNET_ROOT/tools
 
 ## VSCODE #############
 sudo apt-get install wget gpg &&
