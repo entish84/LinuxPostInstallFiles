@@ -244,6 +244,9 @@ color_echo "green" "Installed TUI applications and Timeshift."
 # Install and configure starship
 curl -sS https://starship.rs/install.sh | sh
 
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
+chmod a+rx ~/.local/bin/yt-dlp
+
 dnf copr enable jdxcode/mise -y
 dnf install mise -y
 
