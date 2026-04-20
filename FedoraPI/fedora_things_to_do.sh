@@ -246,6 +246,7 @@ curl -sS https://starship.rs/install.sh | sh
 
 curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
 chmod a+rx ~/.local/bin/yt-dlp
+# yt-dlp -t mp4 --embed-subs -N 5 'https://www.youtube.com/watch?v=LzMnsfqjzkA'
 
 dnf copr enable jdxcode/mise -y
 dnf install mise -y
