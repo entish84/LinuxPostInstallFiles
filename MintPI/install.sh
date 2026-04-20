@@ -27,6 +27,9 @@ nerdfonts-installer
 # install starship
 curl -sS https://starship.rs/install.sh | sh
 
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o ~/.local/bin/yt-dlp
+chmod a+rx ~/.local/bin/yt-dlp 
+
 # INSTALL TUI
 sudo apt install zoxide fzf eza yazi fd-find ripgrep bat tldr ffmpeg 7zip jq poppler-utils imagemagick
 
