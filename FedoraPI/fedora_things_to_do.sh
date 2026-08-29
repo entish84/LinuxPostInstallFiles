@@ -103,6 +103,12 @@ hostnamectl set-hostname rspc
 color_echo "yellow" "Configuring DNF Package Manager..."
 backup_file "/etc/dnf/dnf.conf"
 dnf -y install dnf-plugins-core
+# Max Parallel Downloads
+echo "max_parallel_downloads=10" | tee -a /etc/dnf/dnf.conf > /dev/null
+# Select Fastest Mirror
+echo "fastestmirror=True" | tee -a /etc/dnf/dnf.conf > /dev/null
+# Default Yes
+echo "defaultyes=True" | tee -a /etc/dnf/dnf.conf > /dev/null
 
 # Replace Fedora Flatpak Repo with Flathub for better package management and apps stability
 color_echo "yellow" "Replacing Fedora Flatpak Repo with Flathub..."
@@ -116,12 +122,6 @@ flatpak update
 color_echo "yellow" "Installing and enabling SSH..."
 dnf install -y openssh-server
 systemctl enable --now sshd
-
-# Check and apply firmware updates to improve hardware compatibility and performance
-color_echo "yellow" "Checking for firmware updates..."
-fwupdmgr refresh --force
-fwupdmgr get-updates
-fwupdmgr update -y
 
 # Enable RPM Fusion repositories to access additional software packages and codecs
 color_echo "yellow" "Enabling RPM Fusion repositories..."
@@ -195,6 +195,9 @@ dnf install -y podman
 color_echo "green" "Podman installed successfully."
 
 # Install Media & Graphics applications
+color_echo "yellow" "Installing Spotify..."
+flatpak install -y flathub com.spotify.Client
+color_echo "green" "Spotify installed successfully."
 color_echo "yellow" "Installing MPV..."
 dnf install -y mpv
 color_echo "green" "MPV installed successfully."
