@@ -2,20 +2,21 @@
 #
 # ==============================================================================
 # Fedora 44 GNOME Workstation Configuration & Hotkeys Setup
-# Version: 26.33.0 (Pure User-Space Extensions & Fixed Workspaces)
-# Description: Configures all GNOME extensions strictly in user space
-#              (~/.local/share/gnome-shell/extensions). Configures 9 fixed
-#              numbered workspaces, Auto Move Windows, and Omabuntu keybindings.
+# Version: 26.34.0 (Complete Omabuntu Specification Release)
+# Description: Implements the exact hotkey, window manager, and desktop
+#              specification from Omabuntu/Omakub:
+#              - Alt+1..9 for Dock Apps
+#              - Super+1..9 for Fixed Workspaces
+#              - Super+W / Super+Q to close windows
+#              - Disabled animations for instant switching
+#              - Pure user-space extensions (~/.local/share) with local schemas
 #
 # EXECUTION: Run as your normal desktop user (DO NOT USE SUDO).
 # ==============================================================================
 
 set -uo pipefail
 
-# ------------------------------------------------------------------------------
-# 0. Metadata & Session Validation
-# ------------------------------------------------------------------------------
-readonly SCRIPT_VERSION="26.33.0"
+readonly SCRIPT_VERSION="26.34.0"
 
 if [[ $EUID -eq 0 ]]; then
     echo -e "\033[0;31m[ERROR] Do not execute this script as root or with sudo.\033[0m" >&2
@@ -27,9 +28,6 @@ if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
     export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
 fi
 
-# ------------------------------------------------------------------------------
-# Visual Logging Helpers
-# ------------------------------------------------------------------------------
 step_header() {
     local title="${1:-}"
     echo ""
@@ -48,15 +46,10 @@ subtask_ok() {
     echo -e "\r  \033[1;32m✔\033[0m \033[0;32m${desc} [CONFIGURED]\033[0m\033[K"
 }
 
-subtask_warn() {
-    local desc="${1:-}"
-    echo -e "\r  \033[1;33m⚠\033[0m \033[1;33m${desc} [NOTICE]\033[0m\033[K"
-}
-
 # ------------------------------------------------------------------------------
-# 1. Purge System-Wide Extensions & Install Local CLI Tooling
+# 1. System Dependencies & User-Space Extension Cleanups
 # ------------------------------------------------------------------------------
-step_header "Removing System-Wide Extensions & Installing Tools"
+step_header "System Dependencies & Extension Environment"
 
 subtask_start "Purging system-wide RPM extensions from /usr/share"
 sudo dnf remove -y \
@@ -67,17 +60,17 @@ sudo dnf remove -y \
     gnome-shell-extension-auto-move-windows \
     gnome-shell-extension-workspace-indicator \
     gnome-shell-extension-user-theme >/dev/null 2>&1 || true
-subtask_ok "System-wide RPM extensions removed"
+subtask_ok "System-wide RPM extensions cleaned"
 
-subtask_start "Installing base user-space tools, sensors, and Extension Manager"
+subtask_start "Installing base user-space tools & Extension Manager Flatpak"
 sudo dnf install -y gnome-tweaks gnome-extensions-app libgtop2 lm_sensors jq curl unzip >/dev/null 2>&1 || true
 flatpak install -y --noninteractive flathub com.mattjakeman.ExtensionManager >/dev/null 2>&1 || true
-subtask_ok "User-space development helpers and Extension Manager ready"
+subtask_ok "Helper tools and Extension Manager ready"
 
 # ------------------------------------------------------------------------------
-# 2. Pure User-Space Extension Installer
+# 2. Pure User-Space Extension Installer (extensions.gnome.org)
 # ------------------------------------------------------------------------------
-step_header "Installing Verified Extensions in User Space (~/.local/share)"
+step_header "Installing Verified User-Space Extensions"
 
 USER_EXT_DIR="$HOME/.local/share/gnome-shell/extensions"
 mkdir -p "$USER_EXT_DIR"
@@ -106,7 +99,6 @@ install_user_extension() {
             unzip -qo "$tmp_zip" -d "$target_dir"
             rm -f "$tmp_zip"
 
-            # Inject running GNOME version if unlisted in extension metadata
             if [[ -f "${target_dir}/metadata.json" ]]; then
                 local has_ver
                 has_ver=$(jq --arg v "$shell_major" '."shell-version" | index($v)' "${target_dir}/metadata.json" 2>/dev/null || echo "null")
@@ -116,7 +108,6 @@ install_user_extension() {
                 fi
             fi
 
-            # Compile schemas internally to prevent GLib.FileError
             if [[ -d "${target_dir}/schemas" ]]; then
                 glib-compile-schemas "${target_dir}/schemas" 2>/dev/null || true
             fi
@@ -135,34 +126,30 @@ USER_EXTENSIONS=(
 )
 
 for ext_uuid in "${USER_EXTENSIONS[@]}"; do
-    subtask_start "Installing ${ext_uuid%%@*} as user extension"
+    subtask_start "Installing ${ext_uuid%%@*} in user space"
     install_user_extension "$ext_uuid"
     subtask_ok "${ext_uuid%%@*} installed in ~/.local/share"
 done
 
-# ------------------------------------------------------------------------------
-# 3. User Schema Compilation & GSettings Synchronization
-# ------------------------------------------------------------------------------
-step_header "Indexing User GSettings Schemas"
-
-subtask_start "Compiling and registering user schemas"
+# Compile and export local schemas
 SCHEMA_STORE="$HOME/.local/share/glib-2.0/schemas"
 mkdir -p "$SCHEMA_STORE"
-
-# Copy all user-extension schema files to user schema directory
 find "$USER_EXT_DIR" -maxdepth 3 -type f -name "*.gschema.xml" -exec cp {} "$SCHEMA_STORE/" \; 2>/dev/null || true
 glib-compile-schemas "$SCHEMA_STORE" 2>/dev/null || true
 
 export XDG_DATA_DIRS="$HOME/.local/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
 export GSETTINGS_SCHEMA_DIR="$SCHEMA_STORE"
-subtask_ok "User schemas compiled and ready for configuration"
 
 # ------------------------------------------------------------------------------
-# 4. Appearance, Night Light & Typography
+# 3. Omabuntu Performance & Visual Settings
 # ------------------------------------------------------------------------------
-step_header "Aesthetics, Typography & Night Light Setup"
+step_header "Applying Omabuntu Desktop Settings & Theme"
 
-subtask_start "Configuring dark theme, blue accent, and Papirus icons"
+subtask_start "Disabling animations (instant UI switching)"
+gsettings set org.gnome.desktop.interface enable-animations false
+subtask_ok "Window and workspace animations disabled"
+
+subtask_start "Configuring dark theme, blue accent, and Papirus-Dark icons"
 gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
 gsettings set org.gnome.desktop.interface gtk-theme 'Adwaita-dark'
 gsettings set org.gnome.desktop.interface icon-theme 'Papirus-Dark'
@@ -174,33 +161,34 @@ gsettings set org.gnome.desktop.interface font-name 'Inter Variable 11'
 gsettings set org.gnome.desktop.interface document-font-name 'Inter Variable 11'
 gsettings set org.gnome.desktop.interface monospace-font-name '0xProto Nerd Font 12'
 gsettings set org.gnome.desktop.wm.preferences titlebar-font 'Inter Variable Bold 11'
-subtask_ok "System typography configured"
+subtask_ok "Typography configured"
 
-subtask_start "Enabling battery percentage and window control buttons"
+subtask_start "Setting window buttons and behavior"
 gsettings set org.gnome.desktop.interface show-battery-percentage true
 gsettings set org.gnome.desktop.wm.preferences button-layout 'appmenu:minimize,maximize,close'
 gsettings set org.gnome.mutter center-new-windows true
 gsettings set org.gnome.mutter attach-modal-dialogs true
-subtask_ok "Battery percent and titlebar controls configured"
+gsettings set org.gnome.desktop.wm.preferences focus-mode 'click'
+subtask_ok "Titlebar buttons and focus mode established"
 
 subtask_start "Configuring automatic Circadian Night Light (3700K)"
 gsettings set org.gnome.settings-daemon.plugins.color night-light-enabled true
 gsettings set org.gnome.settings-daemon.plugins.color night-light-schedule-automatic true
 gsettings set org.gnome.settings-daemon.plugins.color night-light-temperature 3700
-subtask_ok "Night Light configured (3700K automatic)"
+subtask_ok "Circadian Night Light enabled"
 
 # ------------------------------------------------------------------------------
-# 5. Fixed Numbered Workspaces (1..9)
+# 4. Omabuntu Hotkeys: Workspaces vs Dock Apps (Alt+1..9 vs Super+1..9)
 # ------------------------------------------------------------------------------
-step_header "Fixed Workspaces (1..9) & Numeric Indicator Configuration"
+step_header "Configuring Omabuntu Navigation & App Switching Hotkeys"
 
-subtask_start "Unbinding default Super+1..9 dock application launchers"
+subtask_start "Mapping Alt + 1..9 to jump to pinned dock apps"
 for i in {1..9}; do
-    gsettings set org.gnome.shell.keybindings "switch-to-application-${i}" "[]"
+    gsettings set org.gnome.shell.keybindings "switch-to-application-${i}" "['<Alt>${i}']"
 done
-subtask_ok "Dock application launcher bindings cleared"
+subtask_ok "Alt + 1..9 assigned to pinned dock applications"
 
-subtask_start "Configuring 9 Fixed Workspaces and direct navigation"
+subtask_start "Establishing 9 Fixed Workspaces on Super + 1..9"
 gsettings set org.gnome.mutter dynamic-workspaces false
 gsettings set org.gnome.desktop.wm.preferences num-workspaces 9
 
@@ -209,34 +197,44 @@ for i in {1..9}; do
     gsettings set org.gnome.desktop.wm.keybindings "move-to-workspace-${i}" "['<Super><Shift>${i}']"
 done
 
+# Sequential workspace cycling
 gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-left "['<Super>bracketleft', '<Super>Page_Up']"
 gsettings set org.gnome.desktop.wm.keybindings switch-to-workspace-right "['<Super>bracketright', '<Super>Page_Down']"
 gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-left "['<Super><Shift>bracketleft']"
 gsettings set org.gnome.desktop.wm.keybindings move-to-workspace-right "['<Super><Shift>bracketright']"
-subtask_ok "Fixed workspaces mapped to Super+1..9 and Super+[/]"
+subtask_ok "Super + 1..9 assigned to 9 fixed workspaces"
 
-# ------------------------------------------------------------------------------
-# 6. Window Controls & Application Hotkeys
-# ------------------------------------------------------------------------------
-step_header "Window Controls, Screenshots & Launchers"
-
-subtask_start "Mapping window controls and screenshot hotkeys"
-gsettings set org.gnome.desktop.wm.keybindings close "['<Super>q', '<Alt>F4']"
+subtask_start "Configuring Omabuntu window control shortcuts"
+# Close active window: Super+W or Super+Q or Alt+F4
+gsettings set org.gnome.desktop.wm.keybindings close "['<Super>w', '<Super>q', '<Alt>F4']"
 gsettings set org.gnome.desktop.wm.keybindings toggle-maximized "['<Super>m']"
 gsettings set org.gnome.desktop.wm.keybindings minimize "['<Super>h']"
+
+# Alt+Tab window switching isolated to current workspace
+gsettings set org.gnome.shell.app-switcher current-workspace-only true 2>/dev/null || true
 gsettings set org.gnome.desktop.wm.keybindings switch-windows "['<Alt>Tab']"
 gsettings set org.gnome.desktop.wm.keybindings switch-windows-backward "['<Shift><Alt>Tab']"
 
+# Native Half-Screen Snapping
 gsettings set org.gnome.mutter.keybindings toggle-tiled-left "['<Super>Left']"
 gsettings set org.gnome.mutter.keybindings toggle-tiled-right "['<Super>Right']"
 gsettings set org.gnome.desktop.wm.keybindings maximize "['<Super>Up']"
 gsettings set org.gnome.desktop.wm.keybindings unmaximize "['<Super>Down']"
 
+# Fullscreen shortcuts (F11)
+gsettings set org.gnome.desktop.wm.keybindings toggle-fullscreen "['F11']"
+
+# Screenshots (Omabuntu convention)
 gsettings set org.gnome.shell.keybindings show-screenshot-ui "['<Super><Shift>s', 'Print']"
 gsettings set org.gnome.shell.keybindings show-screen-recording-ui "['<Ctrl><Super><Shift>r']"
-subtask_ok "Window actions (Super+Q/M/H) and screenshots bound"
+subtask_ok "Window management hotkeys (Super+W, Alt+Tab, F11, Snapping) applied"
 
-subtask_start "Binding application shortcuts and Kitty scratchpad"
+# ------------------------------------------------------------------------------
+# 5. Application Launchers & Scratchpad Terminal
+# ------------------------------------------------------------------------------
+step_header "Custom Application Shortcuts"
+
+subtask_start "Binding application launchers"
 CUSTOM_PATH="/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings"
 
 declare -a SHORTCUTS=(
@@ -269,53 +267,52 @@ for item in "${SHORTCUTS[@]}"; do
 done
 
 gsettings set org.gnome.settings-daemon.plugins.media-keys custom-keybindings "[${BINDING_LIST}]"
-subtask_ok "Launchers configured: Super+Return, Super+Shift+Return, Super+B/E/C"
+subtask_ok "Custom launchers (Super+Return, Super+B, Super+E, Super+C) established"
 
 # ------------------------------------------------------------------------------
-# 7. Enable User Extensions & Configure Preferences
+# 6. Extension Tuning (Omabuntu Dock & Interface)
 # ------------------------------------------------------------------------------
-step_header "Activating Extensions & Configuring Preferences"
+step_header "Configuring User Extensions"
 
-subtask_start "Enabling user extensions via gnome-extensions"
+subtask_start "Enabling extensions"
 for ext in "${USER_EXTENSIONS[@]}"; do
     gnome-extensions enable "$ext" 2>/dev/null || true
 done
-subtask_ok "All extensions active in user space"
+subtask_ok "All extensions active"
 
-subtask_start "Configuring Auto Move Windows (Chrome->1, Code->2, Kitty->3)"
-AMW_SCHEMA="org.gnome.shell.extensions.auto-move-windows"
-if gsettings list-schemas | grep -q "^${AMW_SCHEMA}$"; then
-    gsettings set "$AMW_SCHEMA" application-list "['google-chrome.desktop:1', 'code.desktop:2', 'kitty.desktop:3']"
-    subtask_ok "Auto Move Windows configured"
-else
-    subtask_warn "Auto Move Windows schema unindexed"
-fi
-
-subtask_start "Configuring Just Perfection (displaying numeric workspace bar)"
-JP_SCHEMA="org.gnome.shell.extensions.just-perfection"
-if gsettings list-schemas | grep -q "^${JP_SCHEMA}$"; then
-    gsettings set "$JP_SCHEMA" accessibility-menu false
-    gsettings set "$JP_SCHEMA" window-demands-attention-focus true
-    gsettings set "$JP_SCHEMA" workspace-switcher-should-show false
-    subtask_ok "Just Perfection interface cleanups applied"
-else
-    subtask_warn "Just Perfection schema unindexed"
-fi
-
-subtask_start "Configuring Dash to Dock (floating bottom dock)"
+subtask_start "Configuring Dash to Dock (Omabuntu specification)"
 DOCK_SCHEMA="org.gnome.shell.extensions.dash-to-dock"
 if gsettings list-schemas | grep -q "^${DOCK_SCHEMA}$"; then
+    # Disable internal hotkeys so Alt+1..9 and Super+1..9 are never intercepted
+    gsettings set "$DOCK_SCHEMA" hot-keys false
     gsettings set "$DOCK_SCHEMA" dock-position 'BOTTOM'
     gsettings set "$DOCK_SCHEMA" dock-fixed false
     gsettings set "$DOCK_SCHEMA" autohide true
     gsettings set "$DOCK_SCHEMA" intellihide true
     gsettings set "$DOCK_SCHEMA" dash-max-icon-size 44
     gsettings set "$DOCK_SCHEMA" extend-height false
+    gsettings set "$DOCK_SCHEMA" always-center-icons true
+    gsettings set "$DOCK_SCHEMA" click-action 'minimize-or-previews'
     gsettings set "$DOCK_SCHEMA" running-indicator-style 'DOTS'
     gsettings set "$DOCK_SCHEMA" transparency-mode 'DYNAMIC'
-    subtask_ok "Dash to Dock floating panel layout configured"
-else
-    subtask_warn "Dash to Dock schema unindexed"
+    subtask_ok "Dash to Dock configured with Omabuntu parameters"
+fi
+
+subtask_start "Configuring Auto Move Windows (Chrome->1, Code->2, Kitty->3)"
+AMW_SCHEMA="org.gnome.shell.extensions.auto-move-windows"
+if gsettings list-schemas | grep -q "^${AMW_SCHEMA}$"; then
+    gsettings set "$AMW_SCHEMA" application-list "['google-chrome.desktop:1', 'code.desktop:2', 'kitty.desktop:3']"
+    subtask_ok "Auto Move Windows mapped"
+fi
+
+subtask_start "Configuring Just Perfection & Workspace Indicator"
+JP_SCHEMA="org.gnome.shell.extensions.just-perfection"
+if gsettings list-schemas | grep -q "^${JP_SCHEMA}$"; then
+    gsettings set "$JP_SCHEMA" accessibility-menu false
+    gsettings set "$JP_SCHEMA" window-demands-attention-focus true
+    # Hide default dot workspace switcher in favor of numbers
+    gsettings set "$JP_SCHEMA" workspace-switcher-should-show false
+    subtask_ok "Just Perfection interface adjustments applied"
 fi
 
 subtask_start "Configuring Blur My Shell"
@@ -327,19 +324,22 @@ if gsettings list-schemas | grep -q "^${BMS_SCHEMA}$"; then
     gsettings set "$BMS_SCHEMA.dash-to-dock" brightness 0.75 2>/dev/null || true
     gsettings set "$BMS_SCHEMA.overview" blur true 2>/dev/null || true
     subtask_ok "Frosted glass blur applied"
-else
-    subtask_warn "Blur-My-Shell schema unindexed"
 fi
 
 echo ""
 echo -e "\033[1;32m═════════════════════════════════════════════════════════════════════════════\033[0m"
-echo -e "\033[1;32m  FEDORA GNOME SETUP COMPLETED SUCCESSFULLY (v${SCRIPT_VERSION})\033[0m"
+echo -e "\033[1;32m  OMABUNTU GNOME CONFIGURATION APPLIED SUCCESSFULLY (v${SCRIPT_VERSION})\033[0m"
 echo -e "\033[1;32m═════════════════════════════════════════════════════════════════════════════\033[0m"
 echo ""
-echo "Extension Status Summary:"
-echo "  • Location: Strictly installed in ~/.local/share/gnome-shell/extensions/"
-echo "  • Control:  Fully manageable and removable without sudo"
-echo "  • Workflow: 9 Numbered workspaces with automatic window routing active"
+echo "Omabuntu Hotkey Layout:"
+echo "  • Alt + 1..9:           Jump to / launch pinned Dock apps"
+echo "  • Super + 1..9:         Instant switch to Workspaces 1..9 (zero animation)"
+echo "  • Super + Shift + 1..9: Move active window to Workspace 1..9"
+echo "  • Super + W / Super + Q:Close active window"
+echo "  • Super + Return:       Launch Kitty Terminal"
+echo "  • Super + B / E / C:    Launch Chrome / Yazi / VS Code"
+echo "  • F11:                  Toggle Fullscreen"
+echo "  • Alt + Tab:            Cycle windows on the current workspace only"
 echo ""
-echo -e "\033[1;33m[NEXT STEP]\033[0m Log out and log back in to reload your Wayland session."
+echo -e "\033[1;33m[NEXT STEP]\033[0m Log out and log back in to reload your GNOME Wayland session."
 echo ""
