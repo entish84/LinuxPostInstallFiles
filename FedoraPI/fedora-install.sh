@@ -1,175 +1,418 @@
 #!/usr/bin/env bash
-#
 # ==============================================================================
-# Fedora 44 Workstation Post-Installation Setup Script
-# Version: 26.32.0 (Integrated Power-Cut & Safe Battery Edition)
-# Description: Configured strictly for AMD Integrated Graphics (Radeon 780M).
-#              Uses supergfxd in Integrated mode to physically power down the
-#              RTX 4050, resolving both sleep deadlocks and battery drain.
+# Fedora Minimal Post-Installation & Developer Environment Bootstrap
+# Version: 2.6.0 (Hardened, Idempotent, Production-Ready)
 # ==============================================================================
 
-set -uo pipefail
+set -euo pipefail
 
-readonly SCRIPT_VERSION="26.32.0"
-readonly LOG_FILE="/var/log/fedora44_postinstall.log"
-readonly TOTAL_STEPS=11
-CURRENT_STEP=0
-
-if [[ $EUID -ne 0 ]]; then
-    echo -e "\033[0;31m[ERROR] This script must be executed with root/sudo privileges.\033[0m" >&2
+# ------------------------------------------------------------------------------
+# 0. PRE-FLIGHT PRIVILEGE & TARGET DISCOVERY
+# ------------------------------------------------------------------------------
+if [ "${EUID}" -ne 0 ]; then
+    echo "Error: This script must be run with root privileges via sudo." >&2
     exit 1
 fi
 
-TARGET_USER="${TARGET_USER:-${SUDO_USER:-$(logname 2>/dev/null || id -nu 1000 2>/dev/null || echo "")}}"
-
-if [[ -z "$TARGET_USER" || "$TARGET_USER" == "root" ]]; then
-    echo -e "\033[0;31m[ERROR] Unable to resolve a valid non-root user.\033[0m" >&2
+if [ -z "${SUDO_USER:-}" ] || [ "${SUDO_USER}" = "root" ]; then
+    echo "Error: Execute this script using 'sudo ./script.sh' from a standard non-root user." >&2
     exit 1
 fi
 
-TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
-if [[ -z "$TARGET_HOME" || ! -d "$TARGET_HOME" ]]; then
-    echo -e "\033[0;31m[ERROR] User home directory not found for $TARGET_USER\033[0m" >&2
-    exit 1
-fi
+REAL_USER="${SUDO_USER}"
+REAL_UID=$(id -u "${REAL_USER}")
+REAL_HOME=$(getent passwd "${REAL_USER}" | cut -d: -f6)
+SCRIPT_VERSION="2.6.0"
+STATE_DIR="/var/lib/fedora-setup/state"
+BACKUP_DIR="/var/backups/fedora-setup/$(date +%Y%m%d_%H%M%S)"
+LOG_FILE="/var/log/fedora_postinstall.log"
 
-get_timestamp() {
-    date +'%Y-%m-%d %H:%M:%S'
-}
+mkdir -p "${STATE_DIR}" "${BACKUP_DIR}"
+touch "${LOG_FILE}"
 
-log_message() {
-    local msg="${1:-}"
-    echo "$(get_timestamp) - $msg" >> "$LOG_FILE"
-}
-
-step_header() {
-    ((CURRENT_STEP++))
-    local title="${1:-}"
-    echo ""
-    echo -e "\033[1;34m═════════════════════════════════════════════════════════════════════════════\033[0m"
-    echo -e "\033[1;36m [STEP ${CURRENT_STEP}/${TOTAL_STEPS}]\033[0m \033[1;37m${title}\033[0m"
-    echo -e "\033[1;34m═════════════════════════════════════════════════════════════════════════════\033[0m"
-    log_message "STEP ${CURRENT_STEP}/${TOTAL_STEPS}: ${title}"
-}
-
-subtask_start() {
-    local desc="${1:-}"
-    echo -ne "  \033[1;33m➜\033[0m \033[0;37m${desc}...\033[0m"
-    log_message "RUNNING: ${desc}"
-}
-
-subtask_ok() {
-    local desc="${1:-}"
-    echo -e "\r  \033[1;32m✔\033[0m \033[0;32m${desc} [COMPLETED]\033[0m\033[K"
-    log_message "SUCCESS: ${desc}"
-}
-
-subtask_warn() {
-    local desc="${1:-}"
-    echo -e "\r  \033[1;33m⚠\033[0m \033[1;33m${desc} [FALLBACK/NOTICE]\033[0m\033[K"
-    log_message "WARNING: ${desc}"
+# ------------------------------------------------------------------------------
+# 1. LOGGING & PROCESS WRAPPERS
+# ------------------------------------------------------------------------------
+log() {
+    local level="$1"
+    local message="$2"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] ${message}" >> "${LOG_FILE}"
 }
 
 run_as_user() {
-    local cmd="${1:-}"
-    sudo -u "$TARGET_USER" -H env HOME="$TARGET_HOME" USER="$TARGET_USER" \
-        PATH="$TARGET_HOME/.local/bin:$TARGET_HOME/.cargo/bin:$TARGET_HOME/.local/share/mise/bin:/usr/local/bin:/usr/bin:/bin:$PATH" \
-        bash -c "$cmd"
+    sudo -u "${REAL_USER}" -H bash -c "$*"
 }
 
-safe_download() {
-    local url="${1:-}"
-    local dest="${2:-}"
-    curl -fsSL --retry 3 --connect-timeout 10 "$url" -o "$dest"
+is_step_completed() {
+    local step_id="$1"
+    [ -f "${STATE_DIR}/${step_id}.done" ]
 }
 
-prompt_reboot() {
-    if [[ ! -t 0 ]]; then
-        echo -e "\n\033[1;33m[NOTICE]\033[0m Non-interactive shell detected. Skipping reboot prompt."
-        return 0
-    fi
-    echo ""
-    read -r -p "Reboot now to finalize all system changes and verify battery state? (y/N): " choice
-    if [[ "$choice" =~ ^[yY]$ ]]; then
-        echo -e "\033[1;32mRebooting system...\033[0m"
-        reboot
-    else
-        echo -e "\033[1;33mReboot skipped. Please restart manually later.\033[0m"
+mark_step_completed() {
+    local step_id="$1"
+    touch "${STATE_DIR}/${step_id}.done"
+    log "INFO" "Completed stage: ${step_id}"
+}
+
+backup_file() {
+    local target="$1"
+    if [ -f "${target}" ]; then
+        local dest="${BACKUP_DIR}/$(basename "${target}")"
+        cp -a "${target}" "${dest}"
+        log "INFO" "Backed up file ${target} to ${dest}"
     fi
 }
 
-echo "";
-echo "╔═════════════════════════════════════════════════════════════════════════════╗";
-echo "║   Fedora 44 Post-Install Setup Script                                      ║";
-echo "║   Version: $SCRIPT_VERSION (Integrated Safe Battery Edition)                  ║";
-echo "║   Target User: $TARGET_USER ($TARGET_HOME)                                  ║";
-echo "╚═════════════════════════════════════════════════════════════════════════════╝";
-echo "";
+run_task() {
+    local title="$1"
+    shift
+    local cmd="$*"
+    # Isolate stderr/stdout redirection within subshell to keep Gum spinner functional
+    if ! gum spin --spinner dot --title "${title}" -- bash -c "${cmd} >> '${LOG_FILE}' 2>&1"; then
+        gum style --foreground 196 --bold "✘ Task Failed: ${title}"
+        gum style --foreground 245 "Review failure output from ${LOG_FILE}:"
+        tail -n 20 "${LOG_FILE}"
+        exit 1
+    fi
+}
 
 # ------------------------------------------------------------------------------
-# 1. Hostname & DNF5 Performance
+# 2. BOOTSTRAP GUM (TUI ENGINE) & TERRA REPOSITORY
 # ------------------------------------------------------------------------------
-step_header "Hostname & DNF5 Performance Optimization"
-
-subtask_start "Setting system hostname to 'rspc'"
-hostnamectl set-hostname rspc
-subtask_ok "System hostname set to 'rspc'"
-
-subtask_start "Configuring DNF5 parallel downloads and fastest mirror"
-mkdir -p /etc/dnf/dnf.conf.d
-cat << 'EOF' > /etc/dnf/dnf.conf.d/99-performance.conf
-[main]
-max_parallel_downloads=10
-defaultyes=True
-fastestmirror=True
-EOF
-subtask_ok "DNF5 performance drop-in created"
-
-# ------------------------------------------------------------------------------
-# 2. Software Repositories
-# ------------------------------------------------------------------------------
-step_header "Repository Provisioning & Software Sources"
-
-subtask_start "Installing baseline packaging tools"
-dnf install -y dnf5-plugins dnf-plugins-core fedora-workstation-repositories pciutils grubby >/dev/null 2>&1 || true
-subtask_ok "Packaging plugins and workstation definitions verified"
-
-FEDORA_VER=$(rpm -E %fedora)
-
-subtask_start "Enabling Fyra Labs Terra repository"
-if dnf install -y --nogpgcheck --repofrompath "terra,https://repos.fyralabs.com/terra$FEDORA_VER" terra-release >/dev/null 2>&1; then
-    subtask_ok "Terra repository registered (v${FEDORA_VER})"
-elif dnf install -y --nogpgcheck --repofrompath "terra,https://repos.fyralabs.com/terra$((FEDORA_VER - 1))" terra-release >/dev/null 2>&1; then
-    subtask_warn "Terra repository registered using compatibility release"
-else
-    subtask_warn "Terra repository registration unavailable"
+# Purge conflicting mise third-party repo prior to any repo indexing
+if [ -f /etc/yum.repos.d/mise.repo ]; then
+    rm -f /etc/yum.repos.d/mise.repo
+    dnf clean expire-cache >> "${LOG_FILE}" 2>&1 || true
 fi
 
-subtask_start "Enabling RPM Fusion Free & Non-Free repositories"
-dnf install -y \
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-${FEDORA_VER}.noarch.rpm" \
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-${FEDORA_VER}.noarch.rpm" >/dev/null 2>&1 || \
-dnf install -y \
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$((FEDORA_VER - 1)).noarch.rpm" \
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$((FEDORA_VER - 1)).noarch.rpm" >/dev/null 2>&1 || true
-dnf install -y rpmfusion-\*-appstream-data >/dev/null 2>&1 || true
-subtask_ok "RPM Fusion Free, Non-Free, and AppStream metadata active"
+if ! command -v gum >/dev/null 2>&1; then
+    echo "Bootstrapping prerequisites and Charm Gum TUI..."
+    dnf install -y curl jq tar dnf-plugins-core >> "${LOG_FILE}" 2>&1 || true
 
-subtask_start "Enabling Google Chrome and Cisco OpenH264 repositories"
-dnf config-manager setopt fedora-cisco-openh264.enabled=1 >/dev/null 2>&1 || true
-dnf config-manager setopt google-chrome.enabled=1 >/dev/null 2>&1 || true
-subtask_ok "Chrome and Cisco OpenH264 repositories enabled"
+    if ! dnf repolist | grep -q "terra"; then
+        dnf install -y --nogpgcheck --repofrompath "terra,https://repos.fyralabs.com/terra\$releasever" terra-release >> "${LOG_FILE}" 2>&1 || true
+    fi
 
-subtask_start "Enabling Copr software repositories"
-dnf -y copr enable lihaohong/yazi >/dev/null 2>&1 || true
-dnf -y copr enable alternateved/eza >/dev/null 2>&1 || true
-dnf -y copr enable che/nerd-fonts >/dev/null 2>&1 || true
-dnf -y copr enable lukenukem/asus-linux >/dev/null 2>&1 || true
-subtask_ok "Copr repositories configured"
+    if ! dnf install -y gum >> "${LOG_FILE}" 2>&1; then
+        GUM_VERSION="0.14.5"
+        curl -fsSL "https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_Linux_x86_64.tar.gz" -o /tmp/gum.tar.gz
+        tar -xzf /tmp/gum.tar.gz -C /usr/local/bin/ --strip-components=1 --wildcards '*/gum'
+        rm -f /tmp/gum.tar.gz
+    fi
+fi
 
-subtask_start "Adding Visual Studio Code repository"
-rpm --import https://packages.microsoft.com/keys/microsoft.asc >/dev/null 2>&1 || true
-cat << 'EOF' > /etc/yum.repos.d/vscode.repo
+gum style \
+    --foreground 212 --border-foreground 57 --border double \
+    --align center --width 80 --margin "1 0" --padding "1 2" \
+    "Fedora Workstation Bootstrap Suite" \
+    "Version: ${SCRIPT_VERSION} | Operating User: ${REAL_USER}"
+
+# ------------------------------------------------------------------------------
+# 3. DNF TUNING & BASE SYSTEM UPGRADE
+# ------------------------------------------------------------------------------
+if ! is_step_completed "dnf_tuning"; then
+    gum style --foreground 39 "==> Phase 1: DNF Tuning & Base System Upgrade"
+    backup_file "/etc/dnf/dnf.conf"
+
+    set_dnf_opt() {
+        local key="$1"
+        local val="$2"
+        local conf="/etc/dnf/dnf.conf"
+        if grep -q "^${key}=" "${conf}"; then
+            sed -i "s/^${key}=.*/${key}=${val}/" "${conf}"
+        else
+            echo "${key}=${val}" >> "${conf}"
+        fi
+    }
+
+    set_dnf_opt "max_parallel_downloads" "10"
+    set_dnf_opt "defaultyes" "True"
+    set_dnf_opt "keepcache" "True"
+
+    run_task "Upgrading base packages..." "dnf upgrade -y"
+    mark_step_completed "dnf_tuning"
+    gum style --foreground 82 "✔ DNF optimizations applied and packages upgraded."
+fi
+
+# ------------------------------------------------------------------------------
+# 4. EXTERNAL REPOSITORIES (RPM FUSION & FLATHUB)
+# ------------------------------------------------------------------------------
+if ! is_step_completed "external_repos"; then
+    gum style --foreground 39 "==> Phase 2: Enabling Flathub & RPM Fusion"
+
+    run_task "Enabling RPM Fusion (Free & Non-Free)..." '
+        dnf install -y \
+            "https://download1.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
+            "https://download1.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm" || true
+    '
+
+    run_task "Configuring Flathub..." '
+        dnf install -y flatpak
+        flatpak remote-delete fedora --force 2>/dev/null || true
+        flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    '
+
+    mark_step_completed "external_repos"
+    gum style --foreground 82 "✔ Flathub and RPM Fusion successfully configured."
+fi
+
+# ------------------------------------------------------------------------------
+# 5. HARDWARE ACCELERATION & CODECS
+# ------------------------------------------------------------------------------
+if ! is_step_completed "multimedia_hardware"; then
+    gum style --foreground 39 "==> Phase 3: Hardware Acceleration & Codecs"
+
+    run_task "Installing multimedia codecs..." '
+        if ! rpm -q ffmpeg >/dev/null 2>&1; then
+            dnf swap -y ffmpeg-free ffmpeg --allowerasing || dnf install -y ffmpeg --allowerasing
+        fi
+        dnf group install -y multimedia --setopt="install_weak_deps=False" || dnf install -y @multimedia
+    '
+
+    GPU_CHOICE=$(gum choose --header "Select primary GPU acceleration driver:" "AMD" "Intel" "NVIDIA" "Skip" || echo "Skip")
+    case "${GPU_CHOICE}" in
+        "AMD")
+            run_task "Configuring AMD Mesa Freeworld drivers..." '
+                if ! rpm -q mesa-va-drivers-freeworld >/dev/null 2>&1; then
+                    dnf swap -y mesa-va-drivers mesa-va-drivers-freeworld --allowerasing || true
+                fi
+                if ! rpm -q mesa-vdpau-drivers-freeworld >/dev/null 2>&1; then
+                    dnf swap -y mesa-vdpau-drivers mesa-vdpau-drivers-freeworld --allowerasing || true
+                fi
+            '
+            gum style --foreground 82 "✔ AMD freeworld VA-API / VDPAU drivers configured."
+            ;;
+        "Intel")
+            run_task "Installing Intel VA-API drivers..." '
+                dnf install -y intel-media-driver libva-intel-driver
+            '
+            gum style --foreground 82 "✔ Intel media drivers installed."
+            ;;
+        "NVIDIA")
+            run_task "Installing NVIDIA proprietary drivers & CUDA..." '
+                dnf install -y akmod-nvidia xorg-x11-drv-nvidia-cuda
+            '
+            gum style --foreground 82 "✔ NVIDIA drivers installed."
+            ;;
+    esac
+
+    mark_step_completed "multimedia_hardware"
+fi
+
+# ------------------------------------------------------------------------------
+# 6. CORE CLI TOOLING, FONTS & SYSTEM LIBRARIES
+# ------------------------------------------------------------------------------
+if ! is_step_completed "cli_core_tooling"; then
+    gum style --foreground 39 "==> Phase 4: Core CLI Tools, Fonts & Shared Libraries"
+
+    # Enforce cleanup of third-party mise repo to avoid DNF version-lock collisions
+    if [ -f /etc/yum.repos.d/mise.repo ]; then
+        rm -f /etc/yum.repos.d/mise.repo
+        dnf clean expire-cache >> "${LOG_FILE}" 2>&1 || true
+    fi
+
+    SYSTEM_PACKAGES=(
+        # Shell, compilers, build utilities & runtime shared libraries
+        "zsh" "git" "curl" "wget" "tar" "unzip" "p7zip" "p7zip-plugins" "jq"
+        "make" "cmake" "clang" "ninja-build" "openssh-server" "libicu" "which"
+        "xz" "gzip" "bzip2" "ca-certificates"
+        # Modern CLI replacements
+        "eza" "bat" "fzf" "ripgrep" "fd-find" "zoxide" "yazi"
+        "direnv" "micro" "btop" "fastfetch" "inxi" "wl-clipboard" "poppler-utils"
+        # Shell initialization and version management
+        "starship" "atuin"
+        # Fonts (Corrected packaging across Terra & Fedora official)
+        "firacode-nerd-fonts" "rsms-inter-vf-fonts" "google-carlito-fonts" "google-caladea-fonts"
+    )
+
+    run_task "Installing core tooling, libraries, and fonts..." \
+        "dnf install -y --skip-unavailable ${SYSTEM_PACKAGES[*]}"
+
+    # Safe idempotent installation of mise from native Fedora/Terra repos
+    if ! rpm -q mise >/dev/null 2>&1; then
+        run_task "Installing Mise version manager..." "dnf install -y mise"
+    fi
+
+    fc-cache -f >> "${LOG_FILE}" 2>&1
+    systemctl enable --now sshd >> "${LOG_FILE}" 2>&1
+
+    TARGET_ZSH=$(command -v zsh)
+    CURRENT_SHELL=$(getent passwd "${REAL_USER}" | cut -d: -f7)
+    if [ "${CURRENT_SHELL}" != "${TARGET_ZSH}" ]; then
+        usermod -s "${TARGET_ZSH}" "${REAL_USER}"
+        log "INFO" "Default shell for ${REAL_USER} set to ${TARGET_ZSH}"
+    fi
+
+    mark_step_completed "cli_core_tooling"
+    gum style --foreground 82 "✔ CLI toolchains, fonts, and Zsh configured."
+fi
+
+# ------------------------------------------------------------------------------
+# 7. INTERACTIVE BASIC DESKTOP APPLICATIONS
+# ------------------------------------------------------------------------------
+if ! is_step_completed "desktop_software"; then
+    gum style --foreground 39 "==> Phase 5: Graphical Desktop Applications"
+
+    BROWSER_CHOICE=$(gum choose --header "Select a Primary Web Browser:" \
+        "Firefox (Native RPM)" \
+        "Chromium (Native RPM)" \
+        "Brave Browser (Official RPM Repo)" \
+        "Google Chrome (Official RPM Repo)" \
+        "Skip" || echo "Skip")
+
+    case "${BROWSER_CHOICE}" in
+        "Firefox (Native RPM)")
+            run_task "Installing Firefox..." "dnf install -y firefox"
+            ;;
+        "Chromium (Native RPM)")
+            run_task "Installing Chromium..." "dnf install -y chromium"
+            ;;
+        "Brave Browser (Official RPM Repo)")
+            run_task "Installing Brave Browser..." '
+                cat <<EOF > /etc/yum.repos.d/brave-browser.repo
+[brave-browser]
+name=Brave Browser
+baseurl=https://brave-browser-rpm-release.s3.brave.com/x86_64/
+enabled=1
+gpgcheck=1
+gpgkey=https://brave-browser-rpm-release.s3.brave.com/brave-core.asc
+EOF
+                dnf install -y brave-browser
+            '
+            ;;
+        "Google Chrome (Official RPM Repo)")
+            run_task "Installing Google Chrome..." '
+                cat <<EOF > /etc/yum.repos.d/google-chrome.repo
+[google-chrome]
+name=google-chrome
+baseurl=https://dl.google.com/linux/chrome/rpm/stable/x86_64
+enabled=1
+gpgcheck=1
+gpgkey=https://dl.google.com/linux/linux_signing_key.pub
+EOF
+                dnf install -y google-chrome-stable
+            '
+            ;;
+    esac
+
+    FM_CHOICE=$(gum choose --header "Select a Graphical File Manager:" \
+        "Nautilus (GNOME Files)" \
+        "Thunar (XFCE - Lightweight)" \
+        "Dolphin (KDE)" \
+        "Skip" || echo "Skip")
+
+    case "${FM_CHOICE}" in
+        "Nautilus (GNOME Files)")
+            run_task "Installing Nautilus..." "dnf install -y nautilus"
+            ;;
+        "Thunar (XFCE - Lightweight)")
+            run_task "Installing Thunar..." "dnf install -y thunar"
+            ;;
+        "Dolphin (KDE)")
+            run_task "Installing Dolphin..." "dnf install -y dolphin"
+            ;;
+    esac
+
+    OFFICE_CHOICES=$(gum choose --no-limit --header "Select Desktop & Productivity Utilities:" \
+        "Kitty Terminal" \
+        "LibreOffice Suite" \
+        "Evince (Document & PDF Viewer)" \
+        "File Roller (Archive GUI)" \
+        "Gedit (Text Editor)" \
+        "MPV & qBittorrent" \
+        "Foliate (E-Book Reader)" || echo "")
+
+    if echo "${OFFICE_CHOICES}" | grep -q "Kitty Terminal"; then
+        run_task "Installing Kitty Terminal..." "dnf install -y kitty"
+    fi
+    if echo "${OFFICE_CHOICES}" | grep -q "LibreOffice Suite"; then
+        run_task "Installing LibreOffice..." "dnf install -y libreoffice"
+    fi
+    if echo "${OFFICE_CHOICES}" | grep -q "Evince"; then
+        run_task "Installing Evince..." "dnf install -y evince"
+    fi
+    if echo "${OFFICE_CHOICES}" | grep -q "File Roller"; then
+        run_task "Installing File Roller..." "dnf install -y file-roller"
+    fi
+    if echo "${OFFICE_CHOICES}" | grep -q "Gedit"; then
+        run_task "Installing Gedit..." "dnf install -y gedit"
+    fi
+    if echo "${OFFICE_CHOICES}" | grep -q "MPV & qBittorrent"; then
+        run_task "Installing MPV and qBittorrent..." "dnf install -y mpv qbittorrent"
+    fi
+    if echo "${OFFICE_CHOICES}" | grep -q "Foliate"; then
+        run_task "Installing Foliate..." "dnf install -y foliate"
+    fi
+
+    mark_step_completed "desktop_software"
+    gum style --foreground 82 "✔ Desktop applications configured."
+fi
+
+# ------------------------------------------------------------------------------
+# 8. CONTAINER INFRASTRUCTURE (DOCKER CE & PODMAN)
+# ------------------------------------------------------------------------------
+if ! is_step_completed "container_engines"; then
+    gum style --foreground 39 "==> Phase 6: Container Engines"
+
+    CONTAINER_CHOICES=$(gum choose --no-limit --header "Select Container Technologies to Configure:" \
+        "Podman (Native Rootless Engine, CLI & Compose)" \
+        "Docker CE (Docker Daemon & Official CLI Plugin)" \
+        "Podman Desktop (Container GUI via Flathub)" || echo "")
+
+    if echo "${CONTAINER_CHOICES}" | grep -q "Podman (Native"; then
+        run_task "Configuring Podman & Rootless Socket..." '
+            dnf install -y podman podman-compose buildah skopeo
+            loginctl enable-linger "'"${REAL_USER}"'"
+        '
+        sudo -u "${REAL_USER}" -H XDG_RUNTIME_DIR="/run/user/${REAL_UID}" systemctl --user enable --now podman.socket >> "${LOG_FILE}" 2>&1 || true
+        gum style --foreground 82 "✔ Podman rootless socket active."
+    fi
+
+    if echo "${CONTAINER_CHOICES}" | grep -q "Docker CE"; then
+        run_task "Installing Docker CE engine..." '
+            cat <<EOF > /etc/yum.repos.d/docker-ce.repo
+[docker-ce-stable]
+name=Docker CE Stable - \$basearch
+baseurl=https://download.docker.com/linux/fedora/\$releasever/\$basearch/stable
+enabled=1
+gpgcheck=1
+gpgkey=https://download.docker.com/linux/fedora/gpg
+EOF
+            if ! dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+                dnf install -y moby-engine docker-compose
+            fi
+            systemctl enable --now docker
+            usermod -aG docker "'"${REAL_USER}"'"
+        '
+        gum style --foreground 82 "✔ Docker CE daemon active. Added ${REAL_USER} to docker group."
+    fi
+
+    if echo "${CONTAINER_CHOICES}" | grep -q "Podman Desktop"; then
+        run_task "Installing Podman Desktop..." '
+            flatpak install -y flathub io.podman_desktop.PodmanDesktop
+        '
+        gum style --foreground 82 "✔ Podman Desktop installed via Flathub."
+    fi
+
+    mark_step_completed "container_engines"
+fi
+
+# ------------------------------------------------------------------------------
+# 9. DEVELOPER IDES (VS CODE & JETBRAINS RIDER ARCHIVE)
+# ------------------------------------------------------------------------------
+if ! is_step_completed "developer_ides"; then
+    gum style --foreground 39 "==> Phase 7: Developer IDEs & Tools"
+
+    DEV_CHOICES=$(gum choose --no-limit --header "Select Developer Software to Install:" \
+        "Visual Studio Code (Official Microsoft RPM)" \
+        "JetBrains Rider (Standalone Tarball Archive + Desktop Entry)" \
+        "DBeaver Community (Database Manager via Flathub)" \
+        "Postman (API Client via Flathub)" || echo "")
+
+    if echo "${DEV_CHOICES}" | grep -q "Visual Studio Code"; then
+        run_task "Configuring Microsoft repository and installing VS Code..." '
+            rpm --import https://packages.microsoft.com/keys/microsoft.asc
+            cat <<EOF > /etc/yum.repos.d/vscode.repo
 [code]
 name=Visual Studio Code
 baseurl=https://packages.microsoft.com/yumrepos/vscode
@@ -177,334 +420,127 @@ enabled=1
 gpgcheck=1
 gpgkey=https://packages.microsoft.com/keys/microsoft.asc
 EOF
-subtask_ok "VS Code repository registered"
+            dnf install -y code
+        '
+        gum style --foreground 82 "✔ Visual Studio Code installed."
+    fi
 
-subtask_start "Configuring Docker CE repository"
-safe_download "https://download.docker.com/linux/fedora/docker-ce.repo" "/etc/yum.repos.d/docker-ce.repo"
-if ! curl -fsI "https://download.docker.com/linux/fedora/${FEDORA_VER}/x86_64/stable/" &>/dev/null; then
-    sed -i "s|\$releasever|$((FEDORA_VER - 1))|g" /etc/yum.repos.d/docker-ce.repo
-fi
-sed -i '/^\[.*\]/a skip_if_unavailable=True' /etc/yum.repos.d/docker-ce.repo 2>/dev/null || true
-subtask_ok "Docker CE repository configured"
+    if echo "${DEV_CHOICES}" | grep -q "JetBrains Rider"; then
+        if [ -f "/opt/rider/bin/rider.sh" ]; then
+            gum style --foreground 82 "✔ JetBrains Rider already installed at /opt/rider."
+        else
+            RIDER_DL_URL=$(curl -fsSL "https://data.services.jetbrains.com/products/releases?code=RD&latest=true&type=release" | jq -r '.RD[0].downloads.linux.link // empty')
 
-# ------------------------------------------------------------------------------
-# 3. System Upgrade
-# ------------------------------------------------------------------------------
-step_header "System Upgrade & Package Refresh"
+            if [ -z "${RIDER_DL_URL}" ]; then
+                gum style --foreground 196 "✘ Unable to resolve Rider download URL from JetBrains API. Skipping."
+            else
+                run_task "Downloading and extracting JetBrains Rider to /opt/rider..." '
+                    mkdir -p /opt/rider
+                    curl -fsSL "'"${RIDER_DL_URL}"'" -o /tmp/rider.tar.gz
+                    tar -xzf /tmp/rider.tar.gz -C /opt/rider --strip-components=1
+                    rm -f /tmp/rider.tar.gz
+                    ln -sf /opt/rider/bin/rider.sh /usr/local/bin/rider
+                    chmod -R 755 /opt/rider
+                '
 
-subtask_start "Refreshing metadata and upgrading system packages"
-dnf upgrade -y --refresh
-subtask_ok "System packages successfully refreshed and upgraded"
+                RIDER_ICON="/opt/rider/bin/rider.svg"
+                if [ ! -f "${RIDER_ICON}" ]; then
+                    RIDER_ICON="/opt/rider/bin/rider.png"
+                fi
 
-# ------------------------------------------------------------------------------
-# 4. AMD Radeon 780M Hardware Codecs & ASUS Platform Setup
-# ------------------------------------------------------------------------------
-step_header "AMD Integrated Graphics & Power-Cut Configuration"
-
-subtask_start "Installing unencumbered FFmpeg from RPM Fusion"
-if rpm -q ffmpeg-free &>/dev/null; then
-    dnf swap -y ffmpeg-free ffmpeg --allowerasing >/dev/null 2>&1 || true
-elif ! rpm -q ffmpeg &>/dev/null; then
-    dnf install -y ffmpeg --allowerasing >/dev/null 2>&1 || true
-fi
-subtask_ok "Full FFmpeg package verified"
-
-subtask_start "Installing AMD Radeon 780M Mesa freeworld hardware codecs"
-if rpm -q mesa-va-drivers &>/dev/null; then
-    dnf swap -y mesa-va-drivers mesa-va-drivers-freeworld --allowerasing >/dev/null 2>&1 || true
-else
-    dnf install -y mesa-va-drivers-freeworld --allowerasing >/dev/null 2>&1 || true
-fi
-
-if rpm -q mesa-vdpau-drivers &>/dev/null; then
-    dnf swap -y mesa-vdpau-drivers mesa-vdpau-drivers-freeworld --allowerasing >/dev/null 2>&1 || true
-else
-    dnf install -y mesa-vdpau-drivers-freeworld --allowerasing >/dev/null 2>&1 || true
-fi
-subtask_ok "AMD Radeon 780M hardware video acceleration active"
-
-subtask_start "Blacklisting nouveau driver to prevent wake-from-sleep lockups"
-cat << 'EOF' > /etc/modprobe.d/blacklist-nouveau.conf
-blacklist nouveau
-options nouveau modeset=0
+                cat <<EOF > /usr/share/applications/jetbrains-rider.desktop
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=JetBrains Rider
+Icon=${RIDER_ICON}
+Exec="/usr/local/bin/rider" %f
+Comment=Cross-platform .NET IDE
+Categories=Development;IDE;
+Terminal=false
+StartupWMClass=jetbrains-rider
 EOF
-
-if command -v grubby &>/dev/null; then
-    grubby --update-kernel=ALL --args="rd.driver.blacklist=nouveau modprobe.blacklist=nouveau" >/dev/null 2>&1 || true
-fi
-dracut --regenerate-all --force >/dev/null 2>&1 || dracut --force >/dev/null 2>&1 || true
-subtask_ok "Nouveau driver blacklisted and initramfs refreshed"
-
-subtask_start "Installing and configuring ASUS platform tools (asusd and supergfxd)"
-dnf install -y asusctl asusd supergfxctl 2>/dev/null || dnf install -y asusctl supergfxctl 2>/dev/null || true
-
-# Unmask in case unit was previously masked
-systemctl unmask supergfxd.service 2>/dev/null || true
-systemctl unmask asusd.service 2>/dev/null || true
-
-systemctl enable --now asusd.service >/dev/null 2>&1 || true
-systemctl enable --now supergfxd.service >/dev/null 2>&1 || true
-
-# Force Integrated mode to physically power off RTX 4050
-if command -v supergfxctl &>/dev/null; then
-    supergfxctl -m Integrated >/dev/null 2>&1 || true
-fi
-
-usermod -aG adm "$TARGET_USER" 2>/dev/null || true
-subtask_ok "ASUS daemons active (RTX 4050 powered down via Integrated mode)"
-
-# ------------------------------------------------------------------------------
-# 5. Core Utilities, Toolchains, CLI Runtimes & Applications
-# ------------------------------------------------------------------------------
-step_header "CLI Tools, Build Toolchains, and Desktop Software"
-
-subtask_start "Installing base administration utilities & archive tools"
-dnf install -y openssh-server @virtualization xdg-user-dirs \
-    btop inxi tmux fastfetch unzip unrar git wget curl cabextract fontconfig mkfontscale xz tar >/dev/null 2>&1 || true
-subtask_ok "Administration and archive tools installed"
-
-subtask_start "Installing build compilers and development helpers"
-dnf install -y kitty direnv micro make cmake clang cargo ninja-build wl-clipboard foliate >/dev/null 2>&1 || true
-subtask_ok "Build systems, compilers, Kitty, and Foliate installed"
-
-subtask_start "Installing modern CLI/TUI tools"
-dnf install -y zoxide eza fzf bat yazi fd-find ripgrep tldr jq poppler poppler-utils timeshift >/dev/null 2>&1 || true
-subtask_ok "Modern CLI/TUI utilities and Timeshift installed"
-
-subtask_start "Installing CLI runtime tools (Mise, Atuin, Starship, yt-dlp)"
-dnf install -y starship atuin mise yt-dlp >/dev/null 2>&1 || true
-
-run_as_user 'mkdir -p "$HOME/.local/bin"'
-
-if ! command -v mise &>/dev/null; then
-    run_as_user 'curl -fsSL https://mise.run | sh >/dev/null 2>&1'
-fi
-if ! command -v starship &>/dev/null; then
-    curl -sS https://starship.rs/install.sh | sh -s -- --yes >/dev/null 2>&1 || true
-fi
-if ! command -v atuin &>/dev/null; then
-    run_as_user 'curl --proto "=https" --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive >/dev/null 2>&1 || true'
-fi
-if ! command -v yt-dlp &>/dev/null; then
-    run_as_user 'curl -fL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o "$HOME/.local/bin/yt-dlp" >/dev/null 2>&1 && chmod a+rx "$HOME/.local/bin/yt-dlp"'
-fi
-subtask_ok "Developer CLI tools verified"
-
-subtask_start "Installing desktop packages"
-dnf install -y code google-chrome-stable podman papirus-icon-theme \
-    docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null 2>&1 || true
-subtask_ok "Desktop applications and container runtimes installed"
-
-# ------------------------------------------------------------------------------
-# 6. Flatpak Setup & Applications
-# ------------------------------------------------------------------------------
-step_header "Flatpak Runtime & Application Setup"
-
-subtask_start "Configuring Flathub remote repository"
-dnf install -y flatpak >/dev/null 2>&1 || true
-flatpak remote-delete fedora --force >/dev/null 2>&1 || true
-flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo >/dev/null 2>&1 || true
-flatpak update -y >/dev/null 2>&1 || true
-subtask_ok "Flathub repository active"
-
-subtask_start "Installing desktop Flatpaks"
-flatpak install -y --noninteractive flathub \
-    com.stremio.Stremio \
-    com.spotify.Client \
-    org.qbittorrent.qBittorrent \
-    com.github.tchx84.Flatseal >/dev/null 2>&1 || true
-subtask_ok "Flatpak desktop applications installed"
-
-# ------------------------------------------------------------------------------
-# 7. Typography & Fonts Configuration
-# ------------------------------------------------------------------------------
-step_header "Typography & Nerd Fonts Installation"
-
-subtask_start "Installing Inter Variable Font"
-dnf install -y rsms-inter-vf-fonts rsms-inter-fonts >/dev/null 2>&1 || true
-subtask_ok "Inter variable font installed"
-
-subtask_start "Installing Microsoft Core Fonts"
-if ! rpm -q msttcore-fonts-installer &>/dev/null; then
-    if safe_download "https://downloads.sourceforge.net/project/mscorefonts2/rpms/msttcore-fonts-installer-2.6-1.noarch.rpm" "/tmp/msttcorefonts.rpm"; then
-        rpm -ivh --nodigest --nofiledigest /tmp/msttcorefonts.rpm >/dev/null 2>&1 || true
-        rm -f /tmp/msttcorefonts.rpm
+                chmod 644 /usr/share/applications/jetbrains-rider.desktop
+                restorecon -R /opt/rider /usr/local/bin/rider /usr/share/applications/jetbrains-rider.desktop 2>/dev/null || true
+                gum style --foreground 82 "✔ JetBrains Rider deployed to /opt/rider with desktop integration."
+            fi
+        fi
     fi
-fi
-subtask_ok "Microsoft Core Fonts installed"
 
-mkdir -p /usr/local/share/fonts/NerdFonts
-
-subtask_start "Installing 0xProto Nerd Font"
-if ! dnf install -y 0xproto-nerd-fonts >/dev/null 2>&1 && ! dnf install -y nerd-fonts-0xproto >/dev/null 2>&1; then
-    if safe_download "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/0xProto.tar.xz" "/tmp/0xProto.tar.xz"; then
-        tar -xf /tmp/0xProto.tar.xz -C /usr/local/share/fonts/NerdFonts/ >/dev/null 2>&1 || true
-        rm -f /tmp/0xProto.tar.xz
+    if echo "${DEV_CHOICES}" | grep -q "DBeaver Community"; then
+        run_task "Installing DBeaver Community..." '
+            flatpak install -y flathub io.dbeaver.DBeaverCommunity
+        '
+        gum style --foreground 82 "✔ DBeaver Community installed."
     fi
-fi
-subtask_ok "0xProto Nerd Font installed"
 
-subtask_start "Installing Atkinson Hyperlegible Mono Nerd Font"
-if ! dnf install -y atkinson-hyperlegible-mono-nerd-fonts >/dev/null 2>&1 && ! dnf install -y nerd-fonts-atkinson-hyperlegible-mono >/dev/null 2>&1; then
-    if safe_download "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/AtkinsonHyperlegibleMono.tar.xz" "/tmp/AtkinsonHyperlegibleMono.tar.xz"; then
-        tar -xf /tmp/AtkinsonHyperlegibleMono.tar.xz -C /usr/local/share/fonts/NerdFonts/ >/dev/null 2>&1 || true
-        rm -f /tmp/AtkinsonHyperlegibleMono.tar.xz
+    if echo "${DEV_CHOICES}" | grep -q "Postman"; then
+        run_task "Installing Postman..." '
+            flatpak install -y flathub com.getpostman.Postman
+        '
+        gum style --foreground 82 "✔ Postman installed."
     fi
-fi
-subtask_ok "Atkinson Hyperlegible Mono Nerd Font installed"
 
-subtask_start "Rebuilding system font cache"
-chmod -R 755 /usr/local/share/fonts/NerdFonts
-fc-cache -fv >/dev/null 2>&1 || true
-subtask_ok "Font cache refreshed"
+    mark_step_completed "developer_ides"
+fi
 
 # ------------------------------------------------------------------------------
-# 8. Kitty Terminal Configuration
+# 10. DEPLOY DOTFILES, ZINIT FRAMEWORK & KITTY
 # ------------------------------------------------------------------------------
-step_header "Kitty Terminal Configuration"
+if ! is_step_completed "dotfiles_zinit_config"; then
+    gum style --foreground 39 "==> Phase 8: Deploying User Dotfiles & Configurations"
 
-subtask_start "Writing ~/.config/kitty/kitty.conf with 0xProto Nerd Font"
-mkdir -p "$TARGET_HOME/.config/kitty"
-touch "$TARGET_HOME/.config/kitty/current-theme.conf"
+    ZINIT_TARGET_DIR="${REAL_HOME}/.local/share/zinit/zinit.git"
+    if [ ! -d "${ZINIT_TARGET_DIR}" ]; then
+        run_task "Cloning Zinit core..." '
+            sudo -u "'"${REAL_USER}"'" -H mkdir -p "$(dirname "'"${ZINIT_TARGET_DIR}"'")"
+            sudo -u "'"${REAL_USER}"'" -H git clone https://github.com/zdharma-continuum/zinit.git "'"${ZINIT_TARGET_DIR}"'"
+        '
+    fi
 
-cat << 'EOF' > "$TARGET_HOME/.config/kitty/kitty.conf"
-font_size        13.0
-disable_ligatures never
-background_opacity 0.85
-window_padding_width 10
-repaint_delay    10
-input_delay      3
-sync_to_monitor  yes
-detect_urls      yes
-copy_on_select   yes
+    backup_file "${REAL_HOME}/.zsh_aliases"
+    cat <<'EOF' > "${REAL_HOME}/.zsh_aliases"
+# Aliases
+alias d=dotnet
+alias db="dotnet build"
+alias dw="dotnet watch"
+alias dr="dotnet run"
+alias dt="dotnet test"
+alias c="clear"
+alias q="exit"
 
-cursor_shape          block
-cursor_blink_interval 0.5
-cursor_stop_blinking_after 15.0
+# Git Aliases
+alias gs="git status"
+alias ga="git add"
+alias gc="git commit"
+alias gp="git push"
+alias gl="git log --oneline --graph --decorate"
 
-enabled_layouts splits,stack
-remember_window_size yes
-hide_window_decorations yes
+alias ls="eza -lh --color=auto --icons=auto --group-directories-first --git"
+alias la="eza -lha --color=auto --icons=auto --group-directories-first"
+alias lt="eza -a --tree --level=3 --long --icons --git"
+alias grep="grep --color=auto"
+alias cat='bat --paging=never'
+alias less='bat --style=plain'
+alias path='echo -e ${PATH//:/\\n}' 
 
-cursor_trail 3
-cursor_trail_decay 0.1 0.4
+alias zshconfig="micro ~/.zshrc"
+alias zshreload="source ~/.zshrc"
 
-tab_bar_edge            bottom
-tab_bar_style           powerline
-tab_powerline_style     slanted
-tab_title_template      "{index}: {title}"
-active_tab_font_style   bold
-inactive_tab_font_style normal
-
-confirm_os_window_close 0
-shell_integration enabled
-
-include current-theme.conf
-
-font_family      family="0xProto Nerd Font"
-bold_font        auto
-italic_font      auto
-bold_italic_font auto
+# System Update and Upgrade Aliases
+alias dnfupd="sudo dnf upgrade --refresh"
+alias dnfclean="sudo dnf clean all"
+alias dnfin="sudo dnf install -y"
+alias dnfrm="sudo dnf remove -y"
 EOF
+    chown "${REAL_USER}:${REAL_USER}" "${REAL_HOME}/.zsh_aliases"
+    chmod 644 "${REAL_HOME}/.zsh_aliases"
 
-chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config/kitty"
-subtask_ok "Kitty configuration deployed"
-
-# ------------------------------------------------------------------------------
-# 9. User Dev Environments, Global Runtimes & GitHub SSH Export
-# ------------------------------------------------------------------------------
-step_header "User Runtime Environments & SSH Key Generation"
-
-subtask_start "Initializing standard XDG user directories"
-run_as_user 'xdg-user-dirs-update 2>/dev/null || true'
-subtask_ok "XDG user directories updated"
-
-subtask_start "Setting Git global author identity"
-run_as_user '
-    git config --global user.name "entish84"
-    git config --global user.email "entishthoughts@outlook.com"
-'
-subtask_ok "Git author identity configured (entish84)"
-
-subtask_start "Generating Ed25519 SSH Keypair"
-mkdir -p "$TARGET_HOME/.ssh"
-chmod 700 "$TARGET_HOME/.ssh"
-
-if [[ ! -f "$TARGET_HOME/.ssh/id_ed25519" ]]; then
-    ssh-keygen -t ed25519 -C "entishthoughts@outlook.com" -f "$TARGET_HOME/.ssh/id_ed25519" -N "" >/dev/null 2>&1
-fi
-
-chmod 600 "$TARGET_HOME/.ssh/id_ed25519"
-chmod 644 "$TARGET_HOME/.ssh/id_ed25519.pub"
-chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.ssh"
-
-run_as_user '
-    eval "$(ssh-agent -s)" >/dev/null 2>&1 || true
-    ssh-add "$HOME/.ssh/id_ed25519" 2>/dev/null || true
-'
-subtask_ok "Ed25519 SSH keypair active"
-
-subtask_start "Exporting public SSH key for GitHub"
-cp "$TARGET_HOME/.ssh/id_ed25519.pub" "$TARGET_HOME/github_ed25519.pub"
-chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/github_ed25519.pub"
-chmod 644 "$TARGET_HOME/github_ed25519.pub"
-
-DESKTOP_DIR=$(run_as_user 'xdg-user-dir DESKTOP 2>/dev/null' || true)
-if [[ -z "$DESKTOP_DIR" || ! -d "$DESKTOP_DIR" ]]; then
-    DESKTOP_DIR="$TARGET_HOME/Desktop"
-fi
-mkdir -p "$DESKTOP_DIR" 2>/dev/null || true
-if [[ -d "$DESKTOP_DIR" && "$DESKTOP_DIR" != "$TARGET_HOME" ]]; then
-    cp "$TARGET_HOME/.ssh/id_ed25519.pub" "$DESKTOP_DIR/github_ed25519.pub"
-    chown "$TARGET_USER:$TARGET_USER" "$DESKTOP_DIR/github_ed25519.pub"
-    chmod 644 "$DESKTOP_DIR/github_ed25519.pub"
-fi
-subtask_ok "Public key exported to ~/github_ed25519.pub"
-
-subtask_start "Configuring Mise global runtimes"
-run_as_user '
-    export MISE_YES=1
-    MISE_BIN=$(command -v mise || echo "$HOME/.local/bin/mise")
-    if [[ -x "$MISE_BIN" ]]; then
-        "$MISE_BIN" use --global dotnet@10 >/dev/null 2>&1 || true
-        "$MISE_BIN" use --global java@lts >/dev/null 2>&1 || true
-        "$MISE_BIN" use --global node@latest >/dev/null 2>&1 || true
-    fi
-'
-subtask_ok "Mise global toolchains configured"
-
-subtask_start "Installing Node Version Manager (NVM)"
-run_as_user '
-    if [[ ! -d "$HOME/.nvm" ]]; then
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh 2>/dev/null | bash >/dev/null 2>&1
-    fi
-    export NVM_DIR="$HOME/.nvm"
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" 2>/dev/null || true
-'
-subtask_ok "NVM runtime installed"
-
-# ------------------------------------------------------------------------------
-# 10. Shell Environment (.zshrc, Zinit, Default Shell) & Daemons
-# ------------------------------------------------------------------------------
-step_header "Shell Environment (.zshrc, Zinit) & System Services"
-
-subtask_start "Setting Zsh as default shell for $TARGET_USER"
-dnf install -y zsh >/dev/null 2>&1 || true
-ZSH_PATH=$(command -v zsh || echo "/bin/zsh")
-if [[ -x "$ZSH_PATH" ]]; then
-    grep -qxF "$ZSH_PATH" /etc/shells 2>/dev/null || echo "$ZSH_PATH" >> /etc/shells
-    chsh -s "$ZSH_PATH" "$TARGET_USER" 2>/dev/null || usermod -s "$ZSH_PATH" "$TARGET_USER" 2>/dev/null || true
-fi
-subtask_ok "Default login shell set to $ZSH_PATH"
-
-subtask_start "Cloning Zinit plugin framework"
-if [[ ! -d "$TARGET_HOME/.local/share/zinit/zinit.git" ]]; then
-    run_as_user 'git clone https://github.com/zdharma-continuum/zinit.git "$HOME/.local/share/zinit/zinit.git" >/dev/null 2>&1 || true'
-fi
-subtask_ok "Zinit bootstrap files installed"
-
-subtask_start "Deploying optimized ~/.zshrc configuration"
-cat << 'EOF' > "$TARGET_HOME/.zshrc"
+    backup_file "${REAL_HOME}/.zshrc"
+    cat <<'EOF' > "${REAL_HOME}/.zshrc"
+# ==============================================================================
+# ENVIRONMENT VARIABLES & PATHS
+# ==============================================================================
 export LANG=en_US.UTF-8
 export EDITOR=micro
 export VISUAL=micro
@@ -513,10 +549,13 @@ typeset -U path
 path=(
     $HOME/.local/bin
     $HOME/bin
-    $HOME/.atuin/bin
+    /usr/local/bin
     $path
 )
 
+# ==============================================================================
+# ZINIT INSTALLATION & BOOTSTRAP
+# ==============================================================================
 ZINIT_HOME="${XDG_DATA_HOME:-${HOME}/.local/share}/zinit/zinit.git"
 if [ ! -d "$ZINIT_HOME" ]; then
     mkdir -p "$(dirname "$ZINIT_HOME")"
@@ -524,12 +563,16 @@ if [ ! -d "$ZINIT_HOME" ]; then
 fi
 source "${ZINIT_HOME}/zinit.zsh"
 
+# Load core annexes
 zinit light-mode for \
     zdharma-continuum/zinit-annex-as-monitor \
     zdharma-continuum/zinit-annex-bin-gem-node \
     zdharma-continuum/zinit-annex-patch-dl \
     zdharma-continuum/zinit-annex-rust
 
+# ==============================================================================
+# OH-MY-ZSH LIBRARIES & PLUGINS (Synchronous)
+# ==============================================================================
 zstyle ':omz:plugins:eza' 'dirs-first' yes
 zstyle ':omz:plugins:eza' 'git-status' yes
 zstyle ':omz:plugins:eza' 'header' yes
@@ -543,6 +586,9 @@ zinit snippet OMZP::git
 zinit snippet OMZP::direnv
 zinit snippet OMZP::eza
 
+# ==============================================================================
+# HIGH-PERFORMANCE PLUGINS (Turbo Mode)
+# ==============================================================================
 zinit ice wait'0' lucid blockf
 zinit light zsh-users/zsh-completions
 
@@ -555,27 +601,35 @@ zinit light Aloxaf/fzf-tab
 zinit ice wait'0c' lucid atload"!_zsh_autosuggest_start"
 zinit light zsh-users/zsh-autosuggestions
 
+# ==============================================================================
+# FZF-TAB CONFIGURATION & PREVIEWS
+# ==============================================================================
 zstyle ':completion:*:descriptions' format '[%d]'
 zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
 zstyle ':fzf-tab:*' switch-group ',' '.'
 zstyle ':fzf-tab:*' fzf-flags '--height=40%'
+
 zstyle ':fzf-tab:complete:cd:*' fzf-preview 'eza -1 --color=always $realpath'
 zstyle ':fzf-tab:complete:*:*' fzf-preview \
   'if [ -d $realpath ]; then eza -1 --color=always $realpath; else bat --color=always --line-range :500 $realpath 2>/dev/null; fi'
+
 zstyle ':fzf-tab:complete:(kill|ps):argument-rest' fzf-preview \
   '[[ $group == "[process ID]" ]] && ps --pid=$word -o cmd --no-headers -w -w'
 zstyle ':fzf-tab:complete:(kill|ps):argument-rest' fzf-flags --preview-window=down:3:wrap
 
+# ==============================================================================
+# TOOL INITIALIZATION
+# ==============================================================================
 [ -f "$HOME/.atuin/bin/env" ] && . "$HOME/.atuin/bin/env"
-eval "$(starship init zsh 2>/dev/null)"
-eval "$(mise activate zsh 2>/dev/null || $HOME/.local/bin/mise activate zsh 2>/dev/null)"
-eval "$(zoxide init zsh 2>/dev/null)"
-eval "$(atuin init zsh 2>/dev/null)"
 
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
+command -v mise >/dev/null 2>&1 && eval "$(mise activate zsh)"
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
+command -v atuin >/dev/null 2>&1 && eval "$(atuin init zsh)"
 
+# ==============================================================================
+# HISTORY SETTINGS
+# ==============================================================================
 HISTFILE=$HOME/.zhistory
 SAVEHIST=100000
 HISTSIZE=100000
@@ -584,6 +638,9 @@ setopt SHARE_HISTORY
 setopt HIST_IGNORE_ALL_DUPS
 setopt HIST_REDUCE_BLANKS
 
+# ==============================================================================
+# FUNCTIONS & ALIASES
+# ==============================================================================
 function yy() {
 	local tmp="$(mktemp -t "yazi-cwd.XXXXXX")"
 	yazi "$@" --cwd-file="$tmp"
@@ -595,138 +652,157 @@ function yy() {
 
 alias fm=yy
 [ -f ~/.zsh_aliases ] && source ~/.zsh_aliases
-[[ "$TERM_PROGRAM" == "vscode" ]] && . "$(code --locate-shell-integration-path zsh 2>/dev/null)"
+
+# ==============================================================================
+# INTEGRATIONS & FINAL SETUP
+# ==============================================================================
+[[ "$TERM_PROGRAM" == "vscode" ]] && command -v code >/dev/null 2>&1 && . "$(code --locate-shell-integration-path zsh)"
 EOF
+    chown "${REAL_USER}:${REAL_USER}" "${REAL_HOME}/.zshrc"
+    chmod 644 "${REAL_HOME}/.zshrc"
 
-chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.zshrc"
-subtask_ok ".zshrc provisioned"
+    KITTY_CONFIG_DIR="${REAL_HOME}/.config/kitty"
+    backup_file "${KITTY_CONFIG_DIR}/kitty.conf"
+    run_as_user "mkdir -p '${KITTY_CONFIG_DIR}'"
 
-subtask_start "Enabling SSH, Docker, and Containerd daemons"
-systemctl enable --now sshd 2>/dev/null || systemctl enable sshd 2>/dev/null || true
-systemctl enable --now docker 2>/dev/null || systemctl enable docker 2>/dev/null || true
-systemctl enable --now containerd 2>/dev/null || systemctl enable containerd 2>/dev/null || true
-getent group docker >/dev/null || groupadd docker
-usermod -aG docker "$TARGET_USER" 2>/dev/null || true
-subtask_ok "Daemons active and $TARGET_USER enrolled in docker group"
+    cat <<'EOF' > "${KITTY_CONFIG_DIR}/kitty.conf"
+# Font Configuration
+font_size 12.0
+disable_ligatures never
 
-# ------------------------------------------------------------------------------
-# 11. System Optimizations & Battery Shortcuts
-# ------------------------------------------------------------------------------
-step_header "Desktop Defaults & ASUS Power Shortcuts"
+# Window Configuration
+window_padding_width 12
+background_opacity 1.0
+background_blur 32
+hide_window_decorations yes
 
-mkdir -p "$TARGET_HOME/.config"
-echo "kitty.desktop" > "$TARGET_HOME/.config/xdg-terminals.list"
+# Cursor Configuration
+cursor_shape block
+cursor_blink_interval 1
 
-for gtk_ver in gtk-3.0 gtk-4.0; do
-    mkdir -p "$TARGET_HOME/.config/$gtk_ver"
-    cat << 'EOF' > "$TARGET_HOME/.config/$gtk_ver/settings.ini"
-[Settings]
-gtk-icon-theme-name=Papirus-Dark
-gtk-theme-name=Adwaita-dark
-gtk-application-prefer-dark-theme=1
+# Scrollback
+scrollback_lines 3000
+
+# Terminal features
+copy_on_select yes
+strip_trailing_spaces smart
+
+# Key bindings for common actions
+map ctrl+shift+n new_window
+map ctrl+t new_tab
+map ctrl+plus change_font_size all +1.0
+map ctrl+minus change_font_size all -1.0
+map ctrl+0 change_font_size all 0
+
+# --- Performance & Mouse ---
+repaint_delay    10
+input_delay      3
+sync_to_monitor  yes
+detect_urls      yes
+
+# --- Cursor Customization ---
+cursor_shape          block
+cursor_blink_interval 0.5
+cursor_stop_blinking_after 15.0
+cursor_trail 3
+cursor_trail_decay 0.1 0.4
+
+# Tab configuration
+tab_bar_style powerline
+tab_bar_align left
+
+# Shell integration
+shell_integration enabled
+
+# Dank color generation
+include dank-tabs.conf
+include dank-theme.conf
+
+# BEGIN_KITTY_FONTS
+font_family      family="FiraCode Nerd Font"
+bold_font        auto
+italic_font      auto
+bold_italic_font auto
+# END_KITTY_FONTS
+
+# BEGIN_KITTY_THEME
+include current-theme.conf
+# END_KITTY_THEME
 EOF
-done
-chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config"
+    touch "${KITTY_CONFIG_DIR}/dank-tabs.conf" "${KITTY_CONFIG_DIR}/dank-theme.conf" "${KITTY_CONFIG_DIR}/current-theme.conf"
+    chown -R "${REAL_USER}:${REAL_USER}" "${KITTY_CONFIG_DIR}"
 
-if ! grep -q "TERMINAL=kitty" /etc/environment 2>/dev/null; then
-    echo "TERMINAL=kitty" >> /etc/environment
+    mark_step_completed "dotfiles_zinit_config"
+    gum style --foreground 82 "✔ Dotfiles, shell configs, and Kitty profile deployed."
 fi
 
-flatpak override --filesystem=xdg-data/fonts:ro \
-                 --filesystem=xdg-data/icons:ro 2>/dev/null || true
+# ------------------------------------------------------------------------------
+# 11. GIT CREDENTIALS & SSH KEYPAIR GENERATION
+# ------------------------------------------------------------------------------
+if ! is_step_completed "git_ssh_identity"; then
+    gum style --foreground 39 "==> Phase 9: Git & SSH Credentials"
 
-cat << 'EOF' > "$TARGET_HOME/.zsh_aliases"
-alias ls="eza --icons --group-directories-first"
-alias ll="eza -lh --icons --git --group-directories-first"
-alias la="eza -lah --icons --git --group-directories-first"
-alias lt="eza --tree --level=2 --icons"
-alias cat="bat --paging=never"
-alias grep="rg"
-alias find="fd"
+    CURRENT_GIT_NAME=$(run_as_user "git config --global user.name || true")
+    CURRENT_GIT_EMAIL=$(run_as_user "git config --global user.email || true")
 
-alias g="git"
-alias ga="git add"
-alias gc="git commit -m"
-alias gp="git push"
-alias gst="git status -sb"
-alias gd="git diff"
+    PROMPT_NAME=$(gum input --value "${CURRENT_GIT_NAME}" --prompt "Enter Git author name: " || echo "${CURRENT_GIT_NAME}")
+    PROMPT_EMAIL=$(gum input --value "${CURRENT_GIT_EMAIL}" --prompt "Enter Git author email: " || echo "${CURRENT_GIT_EMAIL}")
 
-alias d="docker"
-alias dc="docker compose"
-alias dps="docker ps --format \"table {{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}\""
-alias p="podman"
-alias pc="podman compose"
+    if [ -n "${PROMPT_NAME}" ] && [ -n "${PROMPT_EMAIL}" ]; then
+        run_as_user "git config --global user.name '${PROMPT_NAME}'"
+        run_as_user "git config --global user.email '${PROMPT_EMAIL}'"
+        run_as_user "git config --global init.defaultBranch main"
+    fi
 
-alias gfx-status="supergfxctl -g"
-alias fan-quiet="asusctl profile -P Quiet"
-alias fan-balanced="asusctl profile -P Balanced"
-alias fan-perf="asusctl profile -P Performance"
-alias bat-limit-80="asusctl -c 80 && echo 'Charge capped at 80%.'"
-alias bat-limit-100="asusctl -c 100 && echo 'Charge cap removed.'"
-alias power-rate="upower -i \$(upower -e | grep 'BAT') | grep -E 'state|energy-rate|time to empty'"
-EOF
-chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.zsh_aliases"
+    USER_SSH_DIR="${REAL_HOME}/.ssh"
+    if [ ! -f "${USER_SSH_DIR}/id_ed25519" ]; then
+        if gum confirm "Generate a new Ed25519 SSH keypair?"; then
+            run_as_user "mkdir -p '${USER_SSH_DIR}' && chmod 700 '${USER_SSH_DIR}'"
+            run_as_user "ssh-keygen -t ed25519 -C '${PROMPT_EMAIL}' -f '${USER_SSH_DIR}/id_ed25519' -N ''"
+            
+            if [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]; then
+                run_as_user "wl-copy < '${USER_SSH_DIR}/id_ed25519.pub' || true"
+            fi
+            gum style --foreground 82 "✔ Generated ~/.ssh/id_ed25519"
+        fi
+    fi
 
-cat << 'EOF' > "$TARGET_HOME/.config/starship.toml"
-add_newline = false
+    mark_step_completed "git_ssh_identity"
+fi
 
-[character]
-success_symbol = "[➜](bold green)"
-error_symbol = "[➜](bold red)"
+# ------------------------------------------------------------------------------
+# 12. MISE LANGUAGE RUNTIME PROVISIONING (IDEMPOTENT)
+# ------------------------------------------------------------------------------
+if ! is_step_completed "runtime_stacks"; then
+    gum style --foreground 39 "==> Phase 10: Language Runtimes (Mise)"
 
-[directory]
-truncation_length = 4
-style = "bold cyan"
+    if gum confirm "Install/Verify standard runtimes (dotnet@lts, node@lts, java@lts) via Mise?"; then
+        # Ensure mise trusts and executes runtimes cleanly without non-interactive hangs
+        run_task "Provisioning developer SDKs via Mise..." '
+            sudo -u "'"${REAL_USER}"'" -H mise settings set idiomatic_version_file false
+            sudo -u "'"${REAL_USER}"'" -H mise settings set yes true
+            sudo -u "'"${REAL_USER}"'" -H mise use --global dotnet@lts node@lts java@lts
+        '
+        gum style --foreground 82 "✔ Global runtimes active (.NET LTS, Node LTS, Java LTS)."
+    fi
 
-[git_branch]
-style = "bold purple"
+    mark_step_completed "runtime_stacks"
+fi
 
-[git_status]
-style = "red"
+# ------------------------------------------------------------------------------
+# 13. COMPLETION & REBOOT
+# ------------------------------------------------------------------------------
+cd "${REAL_HOME}"
+log "INFO" "Setup script finished successfully."
 
-[cmd_duration]
-min_time = 2_000
-style = "yellow"
+gum style \
+    --foreground 82 --border-foreground 82 --border normal \
+    --align center --width 75 --padding "1 2" \
+    "Installation & Environment Bootstrap Complete!" \
+    "Log Output: ${LOG_FILE}" \
+    "Rollback & Config Backups: ${BACKUP_DIR}"
 
-[dotnet]
-symbol = "󰌛 "
-style = "blue"
-
-[nodejs]
-symbol = "󰎙 "
-style = "bold green"
-
-[java]
-symbol = " "
-style = "red"
-EOF
-chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.config/starship.toml"
-
-echo "tcp_bbr" > /etc/modules-load.d/bbr.conf
-modprobe tcp_bbr 2>/dev/null || true
-
-cat << 'EOF' > /etc/sysctl.d/99-network-tuning.conf
-net.core.default_qdisc = cake
-net.ipv4.tcp_congestion_control = bbr
-EOF
-sysctl --system >/dev/null 2>&1 || true
-systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
-
-subtask_start "Cleaning package caches"
-dnf autoremove -y >/dev/null 2>&1 || true
-dnf clean all >/dev/null 2>&1 || true
-subtask_ok "Package cache pruned"
-
-echo ""
-echo -e "\033[1;32m═════════════════════════════════════════════════════════════════════════════\033[0m"
-echo -e "\033[1;32m  FEDORA 44 SETUP COMPLETED SUCCESSFULLY (v${SCRIPT_VERSION})\033[0m"
-echo -e "\033[1;32m═════════════════════════════════════════════════════════════════════════════\033[0m"
-echo ""
-echo "Power Management Status:"
-echo "  -> Primary GPU:      AMD Radeon 780M (Integrated, Mesa VA-API active)"
-echo "  -> Discrete GPU:     RTX 4050 (Powered off via supergfxd Integrated mode)"
-echo "  -> Service Unmask:   supergfxd unmasked and active"
-echo "  -> Aliases:          Run 'power-rate' in terminal to monitor real-time Wattage"
-echo ""
-
-prompt_reboot
+if gum confirm "Reboot system now to apply shell, group, and driver updates?"; then
+    gum style --foreground 214 "Rebooting system..."
+    reboot
+fi
