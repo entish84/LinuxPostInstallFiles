@@ -7,7 +7,7 @@
 # 
 # Features:
 # - Full Dank Material Shell (DMS) Keybinding Parity
-# - Noctalia Shell v5+: Top Floating Pill Bar + Bottom Floating Intellihide Dock
+# - Noctalia Shell v5+: Top Floating Capsule Bar with System Session Controls
 # - Display Setup: 2560x1600 @ 165Hz (16:10), Scale 1.25 with FreeSync / VRR
 # - Touchpad Ergonomics: 3-finger horizontal column scroll, 3-finger vertical
 #   workspace switch, 4-finger vertical swipe up for Niri Overview
@@ -47,8 +47,11 @@ AUTO_YES=false
 CONFIG_ONLY=false
 NO_BACKUP=false
 DRY_RUN=false
-TARGET_USER="${SUDO_USER:-$USER}"
-USER_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+TARGET_USER="${SUDO_USER:-${USER:-$(id -un 2>/dev/null || whoami 2>/dev/null || echo "user")}}"
+USER_HOME="$(getent passwd "$TARGET_USER" 2>/dev/null | cut -d: -f6 || true)"
+if [[ -z "${USER_HOME:-}" ]]; then
+    USER_HOME="${HOME:-/home/$TARGET_USER}"
+fi
 TIMESTAMP="$(date +%s)"
 
 print_help() {
@@ -157,7 +160,7 @@ install_packages() {
                 libnotify
                 adw-gtk-theme
                 nwg-look
-                qt6ct-kde
+                qt6ct
                 kvantum
                 ttf-jetbrains-mono-nerd
                 noto-fonts-emoji
@@ -215,6 +218,9 @@ install_packages() {
                     FEDORA_PKGS+=(noctalia)
                 elif dnf list noctalia-git &>/dev/null; then
                     FEDORA_PKGS+=(noctalia-git)
+                else
+                    log_warn "Neither noctalia nor noctalia-git found in DNF cache. Attempting noctalia install anyway."
+                    FEDORA_PKGS+=(noctalia)
                 fi
 
                 $SUDO_CMD dnf install -y "${FEDORA_PKGS[@]}"
@@ -259,12 +265,18 @@ install_packages() {
                     playerctl
                     wl-clipboard
                     libnotify-bin
-                    adw-gtk3-theme
                     qt6ct
                     fonts-jetbrains-mono
                     fonts-noto-color-emoji
                     papirus-icon-theme
                 )
+
+                # adw-gtk3 is not in standard Debian repos; check if packaged or available
+                if apt-cache show adw-gtk3-theme &>/dev/null; then
+                    DEB_PKGS+=(adw-gtk3-theme)
+                elif apt-cache show adw-gtk3 &>/dev/null; then
+                    DEB_PKGS+=(adw-gtk3)
+                fi
 
                 # Attempt noctalia install from apt
                 if apt-cache show noctalia &>/dev/null; then
@@ -288,12 +300,31 @@ install_packages() {
                         rustup default stable
                     fi
 
+                    if [[ -f "$HOME/.cargo/env" ]]; then
+                        # shellcheck source=/dev/null
+                        source "$HOME/.cargo/env"
+                    elif [[ -f "$USER_HOME/.cargo/env" ]]; then
+                        # shellcheck source=/dev/null
+                        source "$USER_HOME/.cargo/env"
+                    fi
+                    export PATH="$HOME/.cargo/bin:$USER_HOME/.cargo/bin:$PATH"
+
                     cargo install --locked niri
                     cargo install --locked xwayland-satellite
 
                     # Place binary into /usr/local/bin
-                    $SUDO_CMD cp "$USER_HOME/.cargo/bin/niri" /usr/local/bin/ || true
-                    $SUDO_CMD cp "$USER_HOME/.cargo/bin/xwayland-satellite" /usr/local/bin/ || true
+                    $SUDO_CMD mkdir -p /usr/local/bin
+                    for bin in niri xwayland-satellite; do
+                        local bin_path=""
+                        if [[ -f "$HOME/.cargo/bin/$bin" ]]; then
+                            bin_path="$HOME/.cargo/bin/$bin"
+                        elif [[ -f "$USER_HOME/.cargo/bin/$bin" ]]; then
+                            bin_path="$USER_HOME/.cargo/bin/$bin"
+                        fi
+                        if [[ -n "$bin_path" ]]; then
+                            $SUDO_CMD cp "$bin_path" /usr/local/bin/ || true
+                        fi
+                    done
 
                     # Set up wayland session file
                     $SUDO_CMD mkdir -p /usr/share/wayland-sessions
@@ -367,6 +398,16 @@ detect_display_connector() {
         done
     fi
 
+    # If neither eDP nor DP found, check HDMI
+    if [[ "$DETECTED_CONNECTOR" == "eDP-1" ]]; then
+        for card_dir in /sys/class/drm/card*-HDMI-A-*/status /sys/class/drm/card*-HDMI-*/status; do
+            if [[ -f "$card_dir" && "$(<"$card_dir")" == "connected" ]]; then
+                DETECTED_CONNECTOR="$(basename "$(dirname "$card_dir")" | sed 's/^card[0-9]*-//')"
+                break
+            fi
+        done
+    fi
+
     log_info "Active internal display detected: ${GREEN}$DETECTED_CONNECTOR${RESET}"
     echo "$DETECTED_CONNECTOR"
 }
@@ -406,9 +447,10 @@ setup_configurations() {
     local ACTIVE_CONNECTOR
     ACTIVE_CONNECTOR="$(detect_display_connector)"
 
-    # Create destination directories
+    # Create destination directories & Kitty theme fallback
     if [[ "$DRY_RUN" == false ]]; then
-        mkdir -p "$NIRI_SCRIPTS_DIR" "$NOCTALIA_TEMPLATES_DIR" "$KITTY_DIR" "$WALLPAPERS_DIR"
+        mkdir -p "$NIRI_SCRIPTS_DIR" "$NOCTALIA_TEMPLATES_DIR" "$KITTY_DIR/themes" "$WALLPAPERS_DIR"
+        touch "$KITTY_DIR/themes/noctalia.conf"
     fi
 
     # --------------------------------------------------------------------------
@@ -493,7 +535,7 @@ EOF
     # --------------------------------------------------------------------------
     # C. Noctalia Shell Configuration (config.toml, templates.toml)
     # --------------------------------------------------------------------------
-    log_info "Configuring Noctalia Shell v5+ (Top Floating Pill Bar + Bottom Dock)..."
+    log_info "Configuring Noctalia Shell v5+ (Top Floating Capsule Bar with Session Controls)..."
     backup_file_or_dir "$NOCTALIA_DIR/config.toml"
     backup_file_or_dir "$NOCTALIA_DIR/templates.toml"
 
@@ -544,23 +586,9 @@ order = [ "default" ]
         "battery",
         "network",
         "bluetooth",
-        "control-center"
+        "control-center",
+        "session"
     ]
-
-# --- Bottom Floating Intellihide Dock ---
-[dock]
-enabled = true
-position = "bottom"
-auto_hide = false
-smart_auto_hide = true
-magnification = true
-magnification_scale = 1.35
-icon_size = 44
-radius = 18
-margin_edge = 10
-show_running = true
-show_dots = true
-pinned = []
 
 # --- Quick Settings / Control Center ---
 [control_center]
@@ -568,6 +596,10 @@ sidebar = "compact"
 width = 680
 show_shortcut_labels = true
 show_session_button = true
+
+# --- System / Session Widget (Shutdown, Reboot, Suspend, Lock) ---
+[widget.session]
+glyph = "shutdown"
 
 # --- Wallpaper Engine ---
 [wallpaper]
@@ -666,17 +698,43 @@ start_ac_profile() {
 }
 
 check_power_state() {
-    for online_file in /sys/class/power_supply/A*/online /sys/class/power_supply/AC*/online; do
-        if [[ -f "$online_file" ]]; then
-            if [[ "$(<"$online_file")" == "1" ]]; then
-                echo "AC"
-                return
-            else
+    # Check if battery is actively discharging
+    for b in /sys/class/power_supply/BAT*/status /sys/class/power_supply/battery/status; do
+        if [[ -f "$b" ]]; then
+            if [[ "$(<"$b")" == "Discharging" ]]; then
                 echo "BAT"
-                return
+                return 0
             fi
         fi
     done
+
+    # Check mains / AC power online status
+    for psy in /sys/class/power_supply/*; do
+        if [[ -f "$psy/type" ]] && [[ "$(<"$psy/type")" == "Mains" ]] && [[ -f "$psy/online" ]]; then
+            if [[ "$(<"$psy/online")" == "1" ]]; then
+                echo "AC"
+                return 0
+            else
+                echo "BAT"
+                return 0
+            fi
+        elif [[ -f "$psy/online" && ! -d "$psy/device/driver" ]]; then
+            if [[ "$(<"$psy/online")" == "1" ]]; then
+                echo "AC"
+                return 0
+            fi
+        fi
+    done
+
+    # If any battery exists but not discharging, assume AC (charging or full)
+    for b in /sys/class/power_supply/BAT*/status /sys/class/power_supply/battery/status; do
+        if [[ -f "$b" ]]; then
+            echo "AC"
+            return 0
+        fi
+    done
+
+    # Default to AC (e.g. desktop PC without batteries)
     echo "AC"
 }
 
@@ -713,11 +771,14 @@ EOF
 WALLPAPERS_DIR="$HOME/Pictures/Wallpapers"
 mkdir -p "$WALLPAPERS_DIR"
 
-WALLPAPERS=("$WALLPAPERS_DIR"/*.{jpg,jpeg,png,webp})
-if [[ ${#WALLPAPERS[@]} -eq 0 || ! -f "${WALLPAPERS[0]}" ]]; then
+shopt -s nullglob
+WALLPAPERS=("$WALLPAPERS_DIR"/*.jpg "$WALLPAPERS_DIR"/*.jpeg "$WALLPAPERS_DIR"/*.png "$WALLPAPERS_DIR"/*.webp)
+shopt -u nullglob
+
+if [[ ${#WALLPAPERS[@]} -eq 0 ]]; then
     echo "[Wallpaper] No wallpapers found in $WALLPAPERS_DIR. Downloading curated sample..."
     curl -sL "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=2560&q=80" -o "$WALLPAPERS_DIR/default.jpg" || true
-    WALLPAPERS=("$WALLPAPERS_DIR"/default.jpg)
+    WALLPAPERS=("$WALLPAPERS_DIR/default.jpg")
 fi
 
 SELECTED_WP="${WALLPAPERS[RANDOM % ${#WALLPAPERS[@]}]}"
@@ -725,7 +786,7 @@ SELECTED_WP="${WALLPAPERS[RANDOM % ${#WALLPAPERS[@]}]}"
 if [[ -f "$SELECTED_WP" ]]; then
     echo "[Wallpaper] Applying $SELECTED_WP..."
     noctalia msg wallpaper-set "$SELECTED_WP" 2>/dev/null || true
-    notify-send -a "Noctalia" "Palette Updated" "New wallpaper applied: $(basename "$SELECTED_WP")" -i "preferences-desktop-wallpaper"
+    notify-send -a "Noctalia" "Palette Updated" "New wallpaper applied: $(basename "$SELECTED_WP")" -i "preferences-desktop-wallpaper" 2>/dev/null || true
 fi
 EOF
         chmod +x "$WALLPAPER_SCRIPT"
@@ -760,10 +821,13 @@ output "$ACTIVE_CONNECTOR" {
     transform "normal"
     position x=0 y=0
     variable-refresh-rate
+    hot-corners {
+        top-left
+    }
 }
 
 // Fallback rule for secondary / external displays
-output "DP-1" {
+output "DP-2" {
     scale 1.25
     variable-refresh-rate
 }
@@ -815,9 +879,6 @@ gestures {
         trigger-height 50
         delay-ms 100
         max-speed 1500
-    }
-    hot-corners {
-        top-left
     }
 }
 
@@ -908,7 +969,7 @@ layer-rule {
 }
 
 layer-rule {
-    match namespace="^noctalia-(bar-[^\"]+|notification|dock|panel|attached-panel|osd)$"
+    match namespace="^noctalia-(bar-[^\"]+|notification|panel|attached-panel|osd)$"
     background-effect {
         xray false
     }
@@ -978,7 +1039,9 @@ binds {
     Mod+Shift+Down  { move-window-down; }
     Mod+Shift+J     { move-window-down; }
     Mod+Ctrl+Left   { move-column-to-first; }
+    Mod+Ctrl+Home   { move-column-to-first; }
     Mod+Ctrl+Right  { move-column-to-last; }
+    Mod+Ctrl+End    { move-column-to-last; }
 
     // --- Workspaces ---
     Mod+1 { focus-workspace 1; }
@@ -1035,6 +1098,7 @@ binds {
     // --- Session & Power ---
     Mod+Escape    { spawn-sh "noctalia msg session lock"; }
     Ctrl+Alt+L    { spawn-sh "noctalia msg session lock"; }
+    Mod+X         { spawn-sh "noctalia msg panel-toggle session"; }
     Mod+Shift+E   { quit; }
     Mod+Shift+C   { spawn-sh "noctalia msg caffeine-toggle"; }
 
@@ -1062,6 +1126,16 @@ EOF
         fi
     fi
 
+    # Fix ownership of created files if executed via sudo
+    if [[ $EUID -eq 0 && -n "${SUDO_USER:-}" && "$TARGET_USER" != "root" ]]; then
+        log_info "Ensuring correct file ownership for user $TARGET_USER..."
+        chown -R "$TARGET_USER:$(id -gn "$TARGET_USER" 2>/dev/null || id -gn)" \
+            "$CONFIG_HOME/niri" \
+            "$CONFIG_HOME/noctalia" \
+            "$CONFIG_HOME/kitty" \
+            "$WALLPAPERS_DIR" 2>/dev/null || true
+    fi
+
     log_success "All configurations and scripts generated successfully."
 }
 
@@ -1084,7 +1158,7 @@ validate_installation() {
 
     if command -v noctalia &>/dev/null; then
         log_info "Running Noctalia configuration validation..."
-        if noctalia config validate; then
+        if HOME="$USER_HOME" noctalia config validate; then
             log_success "Noctalia configuration syntax is VALID."
         else
             log_warn "Noctalia reported warnings/issues in config."
@@ -1107,7 +1181,7 @@ main() {
     cat <<EOF
 ${BOLD}${GREEN}Summary of Installed System:${RESET}
   - ${BOLD}Compositor:${RESET} Niri (2560x1600 @ 165Hz, Scale 1.25, VRR)
-  - ${BOLD}Shell Layer:${RESET} Noctalia Shell v5 (Top Capsule Bar + Bottom Intellihide Dock)
+  - ${BOLD}Shell Layer:${RESET} Noctalia Shell v5 (Top Floating Capsule Bar with Session Controls)
   - ${BOLD}Terminal:${RESET} Kitty (remote-controlled socket with auto-theming)
   - ${BOLD}Power Management:${RESET} Adaptive AC vs. Battery daemon (Aggressive saver on battery)
   - ${BOLD}Gestures:${RESET}
@@ -1119,6 +1193,7 @@ ${BOLD}${GREEN}Summary of Installed System:${RESET}
       • Mod+Space / Mod+D: Launcher
       • Mod+S: Control Center
       • Mod+Comma: Settings
+      • Mod+X: Session & Power Menu (Shutdown, Reboot, Suspend, Lock)
       • Mod+O: Overview
       • Mod+W: Shuffle Wallpaper & Palette
       • Mod+Escape: Lock Session
